@@ -9,7 +9,8 @@ import {
   getPeopleYouMightKnow,
   toggleFollowUser,
   getUserFollowStats,
-  getUserFollowList
+  getUserFollowList,
+  getCurrentUserFollowingMap
 } from "@/action/userAction";
 import SocialFollowPanel from "@/components/social-panel";
 import {
@@ -54,7 +55,18 @@ export default function BlogList({ initialTrending }) {
   const [followStats, setFollowStats] = useState({ followersCount: 0, followingCount: 0 });
   const [followPanelOpen, setFollowPanelOpen] = useState(false);
   const [followPanelType, setFollowPanelType] = useState('followers');
+  const [isMobile, setIsMobile] = useState(false);
 
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(typeof window !== "undefined" && window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Global event listeners for in-page 4th column
   useEffect(() => {
     const handleOpenFollow = (e) => {
       if (e.detail?.type) {
@@ -62,9 +74,23 @@ export default function BlogList({ initialTrending }) {
       }
       setFollowPanelOpen(true);
     };
+
+    const handleOpenDM = (e) => {
+      if (e.detail?.toggle && followPanelOpen && followPanelType === "messages") {
+        setFollowPanelOpen(false);
+      } else {
+        setFollowPanelType("messages");
+        setFollowPanelOpen(true);
+      }
+    };
+
     window.addEventListener("pulse_open_follow_panel", handleOpenFollow);
-    return () => window.removeEventListener("pulse_open_follow_panel", handleOpenFollow);
-  }, []);
+    window.addEventListener("pulse_open_dm", handleOpenDM);
+    return () => {
+      window.removeEventListener("pulse_open_follow_panel", handleOpenFollow);
+      window.removeEventListener("pulse_open_dm", handleOpenDM);
+    };
+  }, [followPanelOpen, followPanelType]);
 
   // Real-time trending data
   const [trendingTopics, setTrendingTopics] = useState(initialTrending?.trendingTopics || []);
@@ -215,7 +241,7 @@ export default function BlogList({ initialTrending }) {
     };
   }, [loading, hasMore, blogs]);
 
-  // Load People You Might Know & Follow Stats on mount / user change
+  // Load People You Might Know, Follow Stats, and Following Map on mount / user change
   useEffect(() => {
     getPeopleYouMightKnow(8).then((res) => {
       if (res?.success && res.people) {
@@ -232,29 +258,60 @@ export default function BlogList({ initialTrending }) {
           });
         }
       });
+
+      getCurrentUserFollowingMap().then((res) => {
+        if (res?.success && Array.isArray(res.followingUsernames)) {
+          const map = {};
+          res.followingUsernames.forEach((uname) => {
+            map[uname] = true;
+          });
+          setFollowedCreators(map);
+        }
+      });
     }
   }, [user?.username]);
 
-  // Handle Follow Toggle with Real Database Sync
+  // Handle Follow Toggle with Real Database Sync across all widgets
   const handleToggleFollow = async (targetUsername) => {
     if (!user?.username) {
       router.push("/authenticate/sign-in");
       return;
     }
+    if (user.username.toLowerCase() === targetUsername.toLowerCase()) {
+      return;
+    }
 
-    const currentStatus = followedCreators[targetUsername] ?? false;
+    const currentStatus = !!followedCreators[targetUsername];
+    const nextStatus = !currentStatus;
+
+    // Optimistic state updates across both widgets
     setFollowedCreators((prev) => ({
       ...prev,
-      [targetUsername]: !currentStatus,
+      [targetUsername]: nextStatus,
     }));
+    setPeopleYouMightKnow((prev) =>
+      prev.map((p) =>
+        p.username.toLowerCase() === targetUsername.toLowerCase()
+          ? { ...p, isFollowing: nextStatus }
+          : p
+      )
+    );
 
     try {
       const res = await toggleFollowUser(targetUsername);
       if (res?.success) {
+        const confirmedFollowing = res.isFollowing !== undefined ? res.isFollowing : nextStatus;
         setFollowedCreators((prev) => ({
           ...prev,
-          [targetUsername]: res.isFollowing,
+          [targetUsername]: confirmedFollowing,
         }));
+        setPeopleYouMightKnow((prev) =>
+          prev.map((p) =>
+            p.username.toLowerCase() === targetUsername.toLowerCase()
+              ? { ...p, isFollowing: confirmedFollowing }
+              : p
+          )
+        );
         if (res.followingCount !== undefined) {
           setFollowStats((prev) => ({ ...prev, followingCount: res.followingCount }));
         }
@@ -264,6 +321,13 @@ export default function BlogList({ initialTrending }) {
           ...prev,
           [targetUsername]: currentStatus,
         }));
+        setPeopleYouMightKnow((prev) =>
+          prev.map((p) =>
+            p.username.toLowerCase() === targetUsername.toLowerCase()
+              ? { ...p, isFollowing: currentStatus }
+              : p
+          )
+        );
       }
     } catch (err) {
       console.error("Failed to follow creator:", err);
@@ -271,6 +335,13 @@ export default function BlogList({ initialTrending }) {
         ...prev,
         [targetUsername]: currentStatus,
       }));
+      setPeopleYouMightKnow((prev) =>
+        prev.map((p) =>
+          p.username.toLowerCase() === targetUsername.toLowerCase()
+            ? { ...p, isFollowing: currentStatus }
+            : p
+        )
+      );
     }
   };
 
@@ -588,6 +659,7 @@ export default function BlogList({ initialTrending }) {
                 {peopleYouMightKnow.map((person) => {
                   const initials = (person.name || person.username || 'U').slice(0, 2).toUpperCase();
                   const isFollowing = followedCreators[person.username] ?? person.isFollowing;
+                  const isSelf = user?.username && person.username.toLowerCase() === user.username.toLowerCase();
 
                   return (
                     <div
@@ -624,35 +696,41 @@ export default function BlogList({ initialTrending }) {
                           <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white" />
                         </div>
 
-                        <p className="font-bold text-slate-900 text-xs truncate max-w-full group-hover:text-purple-700 transition-colors">
+                        <p className="font-bold text-slate-900 text-sm truncate max-w-full group-hover:text-purple-700 transition-colors">
                           {person.name || person.username}
                         </p>
-                        <p className="text-[11px] text-slate-500 truncate max-w-full">
+                        <p className="text-xs text-slate-500 truncate max-w-full mt-0.5">
                           @{person.username}
                         </p>
 
                         {/* Connection reason tag */}
-                        <span className="mt-2 text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-full line-clamp-1 max-w-full">
+                        <span className="mt-2 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-full line-clamp-1 max-w-full">
                           {person.reason || "Active Creator"}
                         </span>
                       </Link>
 
                       {/* Actions: Follow + Message */}
                       <div className="mt-3.5 pt-2.5 border-t border-slate-100/80 flex items-center space-x-1.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleFollow(person.username);
-                          }}
-                          className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition-all ${
-                            isFollowing
-                              ? 'bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600'
-                              : 'btn-gradient text-white shadow-xs'
-                          }`}
-                        >
-                          {isFollowing ? 'Following' : 'Follow'}
-                        </button>
+                        {isSelf ? (
+                          <span className="flex-1 py-2 text-xs font-semibold text-center rounded-xl bg-purple-50 text-purple-700 border border-purple-200">
+                            You
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleFollow(person.username);
+                            }}
+                            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                              isFollowing
+                                ? 'bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600 border border-slate-200'
+                                : 'btn-gradient text-white shadow-xs'
+                            }`}
+                          >
+                            {isFollowing ? 'Following' : 'Follow'}
+                          </button>
+                        )}
 
                         <button
                           type="button"
@@ -660,7 +738,7 @@ export default function BlogList({ initialTrending }) {
                             e.stopPropagation();
                             openDMWith(person.username);
                           }}
-                          className="p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
+                          className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:text-purple-600 hover:bg-purple-50 transition-colors shrink-0"
                           title={`Message @${person.username}`}
                         >
                           <ChatBubbleLeftRightIcon className="h-4 w-4" />
@@ -869,19 +947,6 @@ export default function BlogList({ initialTrending }) {
         {/* ========================================================= */}
         <aside className="hidden lg:block w-72 xl:w-80 shrink-0 sticky top-20 space-y-5">
           
-          {/* On lg viewports (1024-1279px where 4 columns wouldn't fit side-by-side): show in-page follow panel here */}
-          {followPanelOpen && (
-            <div className="block xl:hidden mb-5 animate-in fade-in slide-in-from-top-3 duration-200">
-              <SocialFollowPanel
-                isOpen={true}
-                inPage={true}
-                onClose={() => setFollowPanelOpen(false)}
-                username={user?.username}
-                initialType={followPanelType}
-              />
-            </div>
-          )}
-          
           {/* Trending Topics Widget */}
           <div className="glass-card rounded-2xl p-5 border border-slate-200/80 shadow-sm">
             <div className="flex items-center justify-between mb-4">
@@ -950,7 +1015,9 @@ export default function BlogList({ initialTrending }) {
                 <p className="text-xs text-slate-400 py-3 text-center">Discovering creators...</p>
               ) : (
                 suggestedCreators.map((creator) => {
-                  const isFollowing = followedCreators[creator.handle];
+                  const isFollowing = !!followedCreators[creator.handle];
+                  const isSelf = user?.username && creator.handle.toLowerCase() === user.username.toLowerCase();
+
                   return (
                     <div key={creator.handle} className="flex items-center justify-between gap-2">
                       <Link
@@ -971,17 +1038,23 @@ export default function BlogList({ initialTrending }) {
                         </div>
                       </Link>
 
-                      <button
-                        type="button"
-                        onClick={() => toggleFollow(creator.handle)}
-                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-all shrink-0 ${
-                          isFollowing
-                            ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                            : "bg-emerald-950 text-white hover:bg-purple-700 shadow-sm"
-                        }`}
-                      >
-                        {isFollowing ? "Following" : "Follow"}
-                      </button>
+                      {isSelf ? (
+                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                          You
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFollow(creator.handle)}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition-all shrink-0 ${
+                            isFollowing
+                              ? "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200"
+                              : "bg-emerald-950 text-white hover:bg-purple-700 shadow-sm"
+                          }`}
+                        >
+                          {isFollowing ? "Following" : "Follow"}
+                        </button>
+                      )}
                     </div>
                   );
                 })
@@ -1020,11 +1093,11 @@ export default function BlogList({ initialTrending }) {
         </aside>
 
         {/* ========================================================= */}
-        {/* IN-PAGE 4TH COLUMN: Network Connections (Desktop xl+)     */}
+        {/* IN-PAGE 4TH COLUMN: Network Connections & DMs (Desktop)   */}
         {/* Placed in the same page, on the right side of the pane!   */}
         {/* ========================================================= */}
-        {followPanelOpen && (
-          <aside className="hidden xl:block w-80 2xl:w-[350px] shrink-0 sticky top-20 animate-in fade-in slide-in-from-right-4 duration-300">
+        {followPanelOpen && !isMobile && (
+          <aside className="hidden lg:block w-80 xl:w-84 2xl:w-[380px] shrink-0 sticky top-20 animate-in fade-in slide-in-from-right-4 duration-300">
             <SocialFollowPanel
               isOpen={true}
               inPage={true}
@@ -1037,17 +1110,16 @@ export default function BlogList({ initialTrending }) {
 
       </div>
 
-      {/* Dedicated Clean Mobile View (< lg) when opened on mobile screens */}
-      {followPanelOpen && (
-        <div className="block lg:hidden">
-          <SocialFollowPanel
-            isOpen={true}
-            inPage={false}
-            onClose={() => setFollowPanelOpen(false)}
-            username={user?.username}
-            initialType={followPanelType}
-          />
-        </div>
+      {/* Dedicated Clean Mobile View (< 1024px) when opened on mobile screens */}
+      {followPanelOpen && isMobile && (
+        <SocialFollowPanel
+          isOpen={true}
+          inPage={false}
+          drawerClassName="lg:hidden"
+          onClose={() => setFollowPanelOpen(false)}
+          username={user?.username}
+          initialType={followPanelType}
+        />
       )}
 
     </div>

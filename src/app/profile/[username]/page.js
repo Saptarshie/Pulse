@@ -9,6 +9,7 @@ import {
   updateUserProfile,
 } from "@/action/userAction";
 import BlogCard from "@/components/blog-feed/blog-card";
+import SocialFollowPanel from "@/components/social-panel";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -98,7 +99,7 @@ export default function UserProfilePage({ params }) {
     try {
       const res = await toggleFollowUser(targetUsername);
       if (res?.success) {
-        const followed = res.action === "followed";
+        const followed = res.isFollowing !== undefined ? res.isFollowing : (res.action === "followed");
         setIsFollowing(followed);
         setUserData((prev) => ({
           ...prev,
@@ -124,14 +125,15 @@ export default function UserProfilePage({ params }) {
     try {
       const res = await toggleFollowUser(member.username);
       if (res?.success) {
+        const followed = res.isFollowing !== undefined ? res.isFollowing : (res.action === "followed");
         const updateList = (list) =>
           list.map((m) =>
             m.username === member.username
               ? {
                   ...m,
-                  isFollowing: res.action === "followed",
+                  isFollowing: followed,
                   followersCount:
-                    res.action === "followed"
+                    followed
                       ? m.followersCount + 1
                       : Math.max(0, m.followersCount - 1),
                 }
@@ -147,19 +149,37 @@ export default function UserProfilePage({ params }) {
     }
   };
 
-  // Open Direct Message modal with user
+  // Listen for pulse_open_dm to activate in-page messages tab on profile
+  useEffect(() => {
+    const handleProfileDM = () => {
+      setActiveTab("messages");
+      setTimeout(() => {
+        const tabsElem = document.getElementById("profile-tabs-section");
+        if (tabsElem) tabsElem.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+    };
+    window.addEventListener("pulse_open_dm", handleProfileDM);
+    return () => window.removeEventListener("pulse_open_dm", handleProfileDM);
+  }, []);
+
+  // Open Direct Message in-page on profile without floating sidebar overlay
   const openDMWith = (username) => {
     if (!reduxUser?.username) {
       router.push("/authenticate/sign-in");
       return;
     }
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("pulse_open_dm", {
-          detail: { username, recipient: username },
-        })
-      );
+    setActiveTab("messages");
+    if (username) {
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("pulse_open_dm", {
+            detail: { username, recipient: username },
+          })
+        );
+      }, 50);
     }
+    const tabsElem = document.getElementById("profile-tabs-section");
+    if (tabsElem) tabsElem.scrollIntoView({ behavior: "smooth" });
   };
 
   // Photo upload handler (for profile owner)
@@ -399,6 +419,15 @@ export default function UserProfilePage({ params }) {
                     <span>{isEditing ? "Close Editor" : "Edit Profile"}</span>
                   </button>
 
+                  <button
+                    onClick={() => openDMWith(null)}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-full border border-purple-200 bg-purple-50/80 hover:bg-purple-100 text-xs font-bold text-purple-800 transition-colors shadow-2xs cursor-pointer"
+                    title="Open your direct messages"
+                  >
+                    <ChatBubbleLeftRightIcon className="h-4 w-4 text-purple-600" />
+                    <span>Direct Messages</span>
+                  </button>
+
                   <Link
                     href="/settings"
                     className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-full border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
@@ -567,11 +596,11 @@ export default function UserProfilePage({ params }) {
         </div>
       )}
 
-      {/* Profile Page Interactive Tabs: Stories, Followers, Following */}
-      <div className="border-b border-slate-200/90 mb-6 flex items-center space-x-2">
+      {/* Profile Page Interactive Tabs: Stories, Followers, Following, Direct Messages */}
+      <div id="profile-tabs-section" className="border-b border-slate-200/90 mb-6 flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={() => setActiveTab("stories")}
-          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 ${
+          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 shrink-0 ${
             activeTab === "stories"
               ? "border-purple-600 text-purple-900"
               : "border-transparent text-slate-500 hover:text-slate-800"
@@ -583,7 +612,7 @@ export default function UserProfilePage({ params }) {
 
         <button
           onClick={() => setActiveTab("followers")}
-          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 ${
+          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 shrink-0 ${
             activeTab === "followers"
               ? "border-purple-600 text-purple-900"
               : "border-transparent text-slate-500 hover:text-slate-800"
@@ -595,7 +624,7 @@ export default function UserProfilePage({ params }) {
 
         <button
           onClick={() => setActiveTab("following")}
-          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 ${
+          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 shrink-0 ${
             activeTab === "following"
               ? "border-purple-600 text-purple-900"
               : "border-transparent text-slate-500 hover:text-slate-800"
@@ -603,6 +632,18 @@ export default function UserProfilePage({ params }) {
         >
           <UserGroupIcon className="h-4 w-4" />
           <span>Following ({following.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("messages")}
+          className={`pb-3 px-4 text-xs sm:text-sm font-bold border-b-2 transition-all flex items-center space-x-2 shrink-0 ${
+            activeTab === "messages"
+              ? "border-purple-600 text-purple-900"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <ChatBubbleLeftRightIcon className="h-4 w-4 text-purple-600" />
+          <span>Direct Messages</span>
         </button>
       </div>
 
@@ -814,6 +855,19 @@ export default function UserProfilePage({ params }) {
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* DIRECT MESSAGES TAB (In-Page on Profile, No Sidebar Effect!) */}
+        {activeTab === "messages" && (
+          <div className="max-w-4xl mx-auto animate-in fade-in duration-200">
+            <SocialFollowPanel
+              isOpen={true}
+              inPage={true}
+              username={reduxUser?.username || userData?.username}
+              initialType="messages"
+              className="h-[680px] shadow-md border border-slate-200/90"
+            />
           </div>
         )}
       </div>

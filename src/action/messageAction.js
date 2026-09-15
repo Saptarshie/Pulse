@@ -6,6 +6,7 @@ import { Conversation, Message, User } from "@/models";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import mongoose from "mongoose";
+import { broadcastRealtimeMessage } from "@/lib/realtimeBroadcaster";
 
 // Helper: Get authenticated user from session cookie
 async function getAuthUser() {
@@ -208,6 +209,131 @@ export async function getConversationMessages(conversationId) {
   }
 }
 
+// Get Both Conversations (Ranked with Unread Priority) and Network Contacts (Followers & Following)
+export async function getDMContactsAndConversations() {
+  try {
+    await connectToDB();
+    const auth = await getAuthUser();
+    if (!auth) {
+      return { success: false, status: 401, message: "Not authenticated", conversations: [], networkContacts: [] };
+    }
+
+    const currentUsername = auth.username;
+
+    // 1. Fetch user's active conversations
+    const rawConversations = await Conversation.find({
+      participants: currentUsername
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Collect participants
+    const activeChatUsernames = new Set();
+    const otherUsernames = rawConversations.map(conv => {
+      const other = conv.participants.find(p => p !== currentUsername);
+      if (other) activeChatUsernames.add(other.toLowerCase());
+      return other;
+    }).filter(Boolean);
+
+    const userDetails = await User.find(
+      { username: { $in: otherUsernames } },
+      { username: 1, name: 1, profilePic: 1, bio: 1 }
+    ).lean();
+
+    const userMap = new Map();
+    userDetails.forEach(u => userMap.set(u.username, u));
+
+    // Unread counts per conversation
+    const unreadCounts = await Message.aggregate([
+      {
+        $match: {
+          recipient: currentUsername,
+          read: false
+        }
+      },
+      {
+        $group: {
+          _id: "$conversationId",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const unreadMap = new Map();
+    unreadCounts.forEach(item => unreadMap.set(item._id.toString(), item.count));
+
+    // Build conversations list
+    let conversations = rawConversations.map(conv => {
+      const otherUsername = conv.participants.find(p => p !== currentUsername) || "User";
+      const otherUser = userMap.get(otherUsername);
+      const unreadCount = unreadMap.get(conv._id.toString()) || 0;
+      return {
+        _id: conv._id.toString(),
+        participants: conv.participants,
+        lastMessage: conv.lastMessage || null,
+        updatedAt: conv.updatedAt,
+        unreadCount,
+        otherUser: {
+          username: otherUsername,
+          name: otherUser?.name || otherUsername,
+          profilePic: otherUser?.profilePic || "",
+          bio: otherUser?.bio || ""
+        }
+      };
+    });
+
+    // PRIORITY SORT: Unread / unseen DMs first, then most recently updated
+    conversations.sort((a, b) => {
+      if ((b.unreadCount > 0) !== (a.unreadCount > 0)) {
+        return b.unreadCount > 0 ? 1 : -1;
+      }
+      return new Date(b.updatedAt) - new Date(a.updatedAt);
+    });
+
+    // 2. Fetch current user's followers and following to populate network contacts
+    const currentUserDoc = await User.findOne({ username: currentUsername })
+      .populate("following", "username name profilePic bio")
+      .populate("followers", "username name profilePic bio")
+      .lean();
+
+    const networkMap = new Map();
+
+    const addNetworkUser = (u, rel) => {
+      if (!u || !u.username) return;
+      const uNameLower = u.username.toLowerCase();
+      if (uNameLower === currentUsername.toLowerCase()) return;
+      // Do not duplicate if already in active conversations
+      if (activeChatUsernames.has(uNameLower)) return;
+
+      if (!networkMap.has(uNameLower)) {
+        networkMap.set(uNameLower, {
+          _id: u._id.toString(),
+          username: u.username,
+          name: u.name || u.username,
+          profilePic: u.profilePic || "",
+          bio: u.bio || "",
+          relationship: rel
+        });
+      }
+    };
+
+    (currentUserDoc?.following || []).forEach(u => addNetworkUser(u, "following"));
+    (currentUserDoc?.followers || []).forEach(u => addNetworkUser(u, "follower"));
+
+    const networkContacts = Array.from(networkMap.values());
+
+    return {
+      success: true,
+      status: 200,
+      conversations: JSON.parse(JSON.stringify(conversations)),
+      networkContacts: JSON.parse(JSON.stringify(networkContacts))
+    };
+  } catch (error) {
+    console.error("Error in getDMContactsAndConversations:", error);
+    return { success: false, status: 500, message: error.message, conversations: [], networkContacts: [] };
+  }
+}
+
 // Send a Direct Message
 export async function sendMessage(conversationId, recipientUsername, content) {
   try {
@@ -261,10 +387,19 @@ export async function sendMessage(conversationId, recipientUsername, content) {
       }
     });
 
+    const serializedMsg = JSON.parse(JSON.stringify(newMessage));
+
+    // Real-time broadcast to connected WebSocket and SSE clients
+    broadcastRealtimeMessage({
+      sender: currentUsername,
+      recipient: recipientUsername,
+      message: serializedMsg
+    }).catch(() => {});
+
     return {
       success: true,
       status: 200,
-      message: JSON.parse(JSON.stringify(newMessage))
+      message: serializedMsg
     };
   } catch (error) {
     console.error("Error in sendMessage:", error);

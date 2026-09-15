@@ -333,12 +333,40 @@ export async function toggleFollowUser(targetUsername) {
       success: true,
       status: 200,
       isFollowing: !isFollowing,
+      action: !isFollowing ? "followed" : "unfollowed",
       followersCount: updatedTarget.followers?.length || 0,
       followingCount: updatedCurrent.following?.length || 0
     };
   } catch (error) {
     console.error("Error in toggleFollowUser:", error);
     return { success: false, status: 500, message: error.message };
+  }
+}
+
+// Get the list of all usernames the currently authenticated user follows
+export async function getCurrentUserFollowingMap() {
+  try {
+    await connectToDB();
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+    if (!token) return { success: true, followingUsernames: [] };
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+    const user = await User.findById(decoded.id).select("following").lean();
+    if (!user || !Array.isArray(user.following) || user.following.length === 0) {
+      return { success: true, followingUsernames: [] };
+    }
+
+    const followingUsers = await User.find(
+      { _id: { $in: user.following } },
+      { username: 1 }
+    ).lean();
+
+    const usernames = followingUsers.map((u) => u.username);
+    return { success: true, followingUsernames: usernames };
+  } catch (err) {
+    console.error("Error in getCurrentUserFollowingMap:", err);
+    return { success: false, followingUsernames: [] };
   }
 }
 

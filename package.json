@@ -37,7 +37,8 @@
     "react-markdown": "^10.1.0",
     "react-redux": "^9.2.0",
     "react-scrollbars-custom": "^4.1.1",
-    "web3": "^4.16.0"
+    "web3": "^4.16.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",

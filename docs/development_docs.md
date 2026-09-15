@@ -459,3 +459,97 @@ All creator mentions across Pulse navigate directly to their public profile (`/p
 4. **Hero Recommendations**: "People You Might Know" cards feature clickable profile links.
 5. **Right Sidebar**: "Featured Creators" avatars and names link directly to `/profile/[handle]`.
 
+---
+
+## 15. Mobile Viewport Architecture & Follow System Synchronization
+
+### 15.1 Mobile Viewport Resolution & Next.js 15 Scaling
+- **Root Cause of Mobile Scaling Bug**: In Next.js 15 App Router, standard `<meta name="viewport" ...>` tags in layout `<head>` are strictly segregated from the metadata object. Without an explicit `export const viewport = { ... }` config in `src/app/layout.js`, modern mobile browsers (especially Chromium, Brave, and Samsung Internet on Android) fall back to the default desktop virtual viewport of 980px wide. This compressed the entire layout by approximately `390 / 980 ≈ 0.398` (~40% scale), making all text, cards, and buttons illegibly tiny.
+- **Resolution in `src/app/layout.js`**:
+  ```javascript
+  export const viewport = {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 5,
+    themeColor: "#f4f7f5",
+  };
+  ```
+- **Micro-Overflow Safeguard**: `overflow-x-hidden` was added to `<body>` and root containers to prevent unconstrained horizontal flex elements from triggering subpixel horizontal scrolling on mobile viewports.
+- **Mobile Touch Sizing & Typography**:
+  - Main story titles: `text-lg sm:text-xl font-bold` (20px).
+  - Story descriptions: `text-sm sm:text-base text-slate-600` (14–16px).
+  - Category navigation tabs: `text-sm font-bold` with minimum 44px touch targets.
+  - Topic chips: `text-xs px-3.5 py-1.5` pill buttons with native horizontal touch scrolling.
+  - "People You Might Know" cards: `w-48 sm:w-52 shrink-0` with 14px creator titles and distinct, high-contrast action buttons.
+
+### 15.2 Follow System Synchronization & Self-Guards
+- **State Synchronization on Mount (`getCurrentUserFollowingMap`)**:
+  - Previously, `followedCreators` in `src/components/blog-feed/blog-list/index.js` was stored only in transient client state, resetting to empty on every page refresh or navigation.
+  - Created `getCurrentUserFollowingMap()` server action in `src/action/userAction.js` that inspects the authenticated session and returns `{ success: true, followingUsernames: ['anurag', 'sapta2', ...] }`.
+  - Executed on mount and whenever `user.username` updates, immediately reflecting followed creators with "Following" status across all widgets.
+- **Self-Account Follow Guards (`isSelf`)**:
+  - Logged-in users should never be offered an action to follow themselves.
+  - Implemented `isSelf = user?.username && targetUsername.toLowerCase() === user.username.toLowerCase()` across:
+    1. **Featured Creators** (Right sidebar): Renders a lavender `You` badge instead of a "Follow" button.
+    2. **People You Might Know** (Hero carousel): Renders a centered `You` badge.
+    3. **Search Page People Results** (`/search`): Renders a `You` badge and prevents follow dispatch.
+    4. **Server Actions (`toggleFollowUser`)**: Rejects self-follow attempts gracefully on the backend.
+- **Server Action & UI Contract (`toggleFollowUser`)**:
+  - Server action returns both `isFollowing: Boolean` and `action: 'followed' | 'unfollowed'`, along with updated counts (`followersCount`, `followingCount`).
+  - Frontend components (`blog-list`, `search`, `profile`, `social-panel`) use a unified fallback resolution:
+    ```javascript
+    const isNowFollowing = res.isFollowing !== undefined ? res.isFollowing : (res.action === 'followed');
+    ```
+  - Optimistic updates immediately update the button text and counts, rolling back smoothly only if the server returns an error.
+
+---
+
+## 16. Real-Time Direct Messaging (DM) Architecture & In-Page 4th Pane Layout
+
+### 16.1 Server Performance & WebSocket Architecture
+- **Elimination of Database Polling**:
+  - Previous implementations polled the database every 4 seconds (`setInterval`), degrading database connection pool limits and imposing unnecessary I/O on MongoDB.
+  - Replaced polling with a high-throughput, low-latency **WebSocket Primary + Server-Sent Events (SSE) Fallback** hybrid architecture.
+- **Standalone WebSocket Server (`src/lib/socketServer.js`)**:
+  - Runs on port 3005 (`WS_PORT`).
+  - Maintains an in-memory connection registry `Map<username, Set<WebSocket>>` supporting multi-tab connections per user.
+  - Handles client authentication handshake `{ type: "auth", username }` and heartbeat ping-pong intervals.
+  - Exposes an internal HTTP `/broadcast` endpoint allowing Next.js server actions to dispatch events across worker threads.
+- **Native Server-Sent Events (SSE) Route (`src/app/api/messages/stream/route.js`)**:
+  - Built-in Next.js App Router streaming endpoint `/api/messages/stream`.
+  - Zero-configuration fallback for environments where WebSocket ports or firewalls are restricted.
+  - Registers active client streams in a shared client pool (`globalThis.pulseSSEClients`).
+- **Unified Real-Time Broadcaster (`src/lib/realtimeBroadcaster.js`)**:
+  - Dispatches message payloads synchronously to both local SSE client pool and the WebSocket server's `/broadcast` endpoint.
+  - Guarantees immediate (<20ms) message delivery without database round-trip polling.
+
+### 16.2 In-Page 4th Pane Architecture (`SocialFollowPanel`)
+- **Retirement of Centered Modals & Backdrop Overlays**:
+  - The legacy DM modal covered the entire page with a dark backdrop blur (`bg-slate-900/40`), isolating the conversation and obstructing feed reading.
+  - The new architecture integrates DMs directly into the **4th in-page column** on desktop (`xl+`), positioned immediately to the right of Column 3 ("Trending Topics" & "Featured Creators").
+  - The user can read blogs, interact with posts, browse topics, and chat simultaneously without disruption.
+- **Unified 3-Tab Hub**:
+  - Single component (`src/components/social-panel/index.js`) housing **💬 DMs**, **Following**, and **Followers**.
+  - Includes real-time connection status indicator (pulsing emerald for WebSocket, purple for SSE).
+  - Includes unread badge counter in the tab bar.
+- **Context-Aware Responsive Modes**:
+  1. **Desktop In-Page 4th Column** (`inPage = true`): Renders inline in the home feed grid (`w-80 xl:w-84 2xl:w-[380px]`), directly adjacent to Column 3 ("Trending Topics & Featured Creators"), with zero backdrop dimming.
+  2. **Profile In-Page Integration (`/profile/[username]`)**: On desktop, the profile page integrates Direct Messages as an in-page tab directly beneath the profile header and tabs (`activeTab === "messages"`). Clicking "Direct Messages" or "Message" on desktop never triggers a floating sidebar overlay or backdrop blur.
+  3. **Mobile Full-Screen Edge-to-Edge Experience**: When the drawer opens on mobile (`< sm`), it spans 100% of the viewport (`fixed inset-0 w-full h-full z-[9999]`) without any side padding or slivers, delivering a native full-screen mobile application experience.
+
+### 16.3 Network Contacts Integration & DM Prioritization Algorithm
+- **Starting Conversations with Network**:
+  - Users are no longer limited to existing conversations; they can initiate a chat with anyone in their social network directly from the DM pane.
+  - Implemented `getDMContactsAndConversations()` server action in `src/action/messageAction.js`:
+    1. **Recent Active Conversations**: Fetches existing threads and computes unread count per conversation.
+    2. **Network Extraction**: Fetches current user's followers and followings.
+    3. **Set Difference**: Filters out creators who already have an active conversation, leaving potential new contacts (`networkContacts`).
+    4. **Contact Prioritization Algorithm**:
+       - **Priority 1 (Top)**: Conversations with unread/unseen messages (`unreadCount > 0`).
+       - **Priority 2**: Conversations sorted descending by timestamp of last message (`updatedAt`).
+       - **Priority 3**: "Start Conversation with Network" section listing remaining followers and following with instant 1-click `Chat` buttons.
+- **Universal DM Triggers on User Profiles**:
+  - `/profile/[username]` (Other User): Distinct "Message" CTA switches to the in-page Direct Messages tab and opens the thread with that creator.
+  - `/profile/[username]` (Self): "Direct Messages" CTA switches to the in-page Direct Messages tab.
+  - Followers & Following lists: "Chat" action button on every member card opens the conversation in-page.
+

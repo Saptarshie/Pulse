@@ -1,30 +1,31 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import LogoutButton from '../buttons/logout-button';
 import { useSelector, useDispatch } from 'react-redux';
 import { setUser } from '@/store/slices/user-slice';
 import { fetchUserAction } from '@/action';
 import { 
-  MagnifyingGlassIcon,
-  PencilSquareIcon,
-  ChartBarSquareIcon,
-  UserCircleIcon,
-  ClockIcon,
-  Cog6ToothIcon,
-  SparklesIcon,
-  CheckBadgeIcon,
-  Bars3Icon,
-  XMarkIcon,
-  ChatBubbleLeftRightIcon
+  MagnifyingGlassIcon, 
+  PencilSquareIcon, 
+  ChartBarSquareIcon, 
+  UserCircleIcon, 
+  ClockIcon, 
+  Cog6ToothIcon, 
+  SparklesIcon, 
+  CheckBadgeIcon, 
+  Bars3Icon, 
+  XMarkIcon, 
+  ChatBubbleLeftRightIcon 
 } from '@heroicons/react/24/outline';
-import DirectMessageDrawer from '../direct-messages';
+import SocialFollowPanel from '../social-panel';
 import { getUnreadMessageCount } from '@/action/messageAction';
 
 export default function Navbar() {
   const dispatch = useDispatch();
   const router = useRouter();
+  const pathname = usePathname();
   const user = useSelector((state) => state.userslice);
   
   // States
@@ -43,12 +44,13 @@ export default function Navbar() {
   // Listen for global pulse_open_dm event
   useEffect(() => {
     const handleOpenDM = (e) => {
+      if (pathname === '/' || pathname.startsWith('/profile')) return; // Handled in-page by feed and profile page
       setIsDMOpen(true);
       setDmRecipient(e.detail?.username || e.detail?.recipient || null);
     };
     window.addEventListener('pulse_open_dm', handleOpenDM);
     return () => window.removeEventListener('pulse_open_dm', handleOpenDM);
-  }, []);
+  }, [pathname]);
 
   // Fetch unread messages
   useEffect(() => {
@@ -176,8 +178,15 @@ export default function Navbar() {
             {/* Direct Messages Icon Button */}
             <button
               type="button"
-              onClick={() => { setIsDMOpen(true); setDmRecipient(null); }}
-              className="relative p-2 rounded-full text-slate-600 hover:text-purple-700 hover:bg-purple-50/70 transition-all border border-emerald-200/40"
+              onClick={() => {
+                if (pathname === '/' || pathname.startsWith('/profile')) {
+                  window.dispatchEvent(new CustomEvent('pulse_open_dm', { detail: { toggle: true } }));
+                } else {
+                  setIsDMOpen((prev) => !prev);
+                  setDmRecipient(null);
+                }
+              }}
+              className="relative p-2 rounded-full text-slate-600 hover:text-purple-700 hover:bg-purple-50/70 transition-all border border-emerald-200/40 cursor-pointer"
               title="Direct Messages"
             >
               <ChatBubbleLeftRightIcon className="h-5 w-5 text-purple-600" />
@@ -383,8 +392,12 @@ export default function Navbar() {
               type="button"
               onClick={() => {
                 resetNavStates();
-                setIsDMOpen(true);
-                setDmRecipient(null);
+                if (pathname === '/' || pathname.startsWith('/profile')) {
+                  window.dispatchEvent(new CustomEvent('pulse_open_dm', { detail: { toggle: true } }));
+                } else {
+                  setIsDMOpen(true);
+                  setDmRecipient(null);
+                }
               }}
               className="w-full flex items-center justify-between px-3 py-2 text-slate-700 hover:bg-purple-50 rounded-lg text-sm font-medium"
             >
@@ -431,12 +444,19 @@ export default function Navbar() {
           </div>
         )}
 
-      {/* Globally Mounted Direct Message Drawer */}
-      <DirectMessageDrawer
-        isOpen={isDMOpen}
-        onClose={() => setIsDMOpen(false)}
-        initialRecipient={dmRecipient}
-      />
+      {/* Globally Mounted Social & DM Panel (for other standalone pages e.g. /search, /settings) */}
+      {pathname !== '/' && !pathname.startsWith('/profile') && (
+        <SocialFollowPanel
+          isOpen={isDMOpen}
+          onClose={() => {
+            setIsDMOpen(false);
+            setDmRecipient(null);
+          }}
+          inPage={false}
+          initialType="messages"
+          username={user?.username}
+        />
+      )}
     </nav>
   );
 }

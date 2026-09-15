@@ -1,6 +1,7 @@
 "use client";
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
+import { useSelector } from 'react-redux';
 import { searchBlogs } from '@/action/blogAction';
 import { searchPeople, toggleFollowUser } from '@/action/userAction';
 import BlogCard from '@/components/blog-feed/blog-card';
@@ -20,6 +21,7 @@ import Link from 'next/link';
 function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const currentUser = useSelector((state) => state.userslice);
   const query = searchParams.get('q') || '';
   const initialTab = searchParams.get('type') || 'all'; // 'all' | 'stories' | 'people'
   
@@ -71,16 +73,26 @@ function SearchContent() {
   };
 
   const handleToggleFollow = async (person) => {
+    if (!currentUser?.username) {
+      router.push('/authenticate/sign-in');
+      return;
+    }
+    if (currentUser.username.toLowerCase() === person.username.toLowerCase()) {
+      return;
+    }
     setFollowLoading(prev => ({ ...prev, [person.username]: true }));
     try {
       const res = await toggleFollowUser(person.username);
       if (res?.success) {
+        const nextState = res.isFollowing !== undefined ? res.isFollowing : (res.action === 'followed');
         setPeople(prev => prev.map(p => {
           if (p.username === person.username) {
             return {
               ...p,
-              isFollowing: res.action === 'followed',
-              followersCount: res.action === 'followed' ? p.followersCount + 1 : Math.max(0, p.followersCount - 1)
+              isFollowing: nextState,
+              followersCount: res.followersCount !== undefined 
+                ? res.followersCount 
+                : (nextState ? p.followersCount + 1 : Math.max(0, p.followersCount - 1))
             };
           }
           return p;
@@ -245,6 +257,7 @@ function SearchContent() {
                 {people.map((person) => {
                   const initial = (person.name || person.username || 'U').slice(0, 2).toUpperCase();
                   const isMatchSimilar = person.matchType === 'similar';
+                  const isSelf = currentUser?.username && person.username.toLowerCase() === currentUser.username.toLowerCase();
 
                   return (
                     <div
@@ -312,27 +325,33 @@ function SearchContent() {
 
                       {/* Card Actions: Follow & Message */}
                       <div className="flex items-center space-x-2 mt-4 pt-3 border-t border-slate-100">
-                        <button
-                          onClick={() => handleToggleFollow(person)}
-                          disabled={followLoading[person.username]}
-                          className={`flex-1 inline-flex items-center justify-center space-x-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all shadow-sm ${
-                            person.isFollowing
-                              ? 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-600'
-                              : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                          }`}
-                        >
-                          {person.isFollowing ? (
-                            <>
-                              <CheckIcon className="h-3.5 w-3.5" />
-                              <span>Following</span>
-                            </>
-                          ) : (
-                            <>
-                              <UserPlusIcon className="h-3.5 w-3.5" />
-                              <span>Follow</span>
-                            </>
-                          )}
-                        </button>
+                        {isSelf ? (
+                          <span className="flex-1 inline-flex items-center justify-center py-1.5 px-3 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            You
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleFollow(person)}
+                            disabled={followLoading[person.username]}
+                            className={`flex-1 inline-flex items-center justify-center space-x-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                              person.isFollowing
+                                ? 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-600 border border-slate-200'
+                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                            }`}
+                          >
+                            {person.isFollowing ? (
+                              <>
+                                <CheckIcon className="h-3.5 w-3.5" />
+                                <span>Following</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserPlusIcon className="h-3.5 w-3.5" />
+                                <span>Follow</span>
+                              </>
+                            )}
+                          </button>
+                        )}
 
                         <button
                           onClick={() => openDMWith(person.username)}
