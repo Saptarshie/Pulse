@@ -1,17 +1,19 @@
-'use client'
+'use client';
 import { Provider } from "react-redux";
 import React from 'react';
 import { store } from "@/store";
 import Navbar from "@/components/navbar";
-import AskAI from "@/components/ask-ai";
+
 export default function ReduxProvider({ children }) {
   return (
     <Provider store={store}>
-        <Navbar/>
-        <div className="h-14"/>
-        <main>
-        {children}
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <div className="h-16" />
+        <main className="flex-1 w-full">
+          {children}
         </main>
+      </div>
     </Provider>
-  )
+  );
 }

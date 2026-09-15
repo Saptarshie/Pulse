@@ -1,26 +1,181 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f4f7f5;
+  --foreground: #17221e;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-border: rgba(160, 190, 174, 0.35);
+  --brand-lavender: #8b5cf6;
+  --brand-lavender-dark: #6d28d9;
+  --brand-sage: #4a7c59;
+  --brand-sage-light: #e8f2ec;
+  --brand-iris: #5b66ca;
+  --brand-rain-slate: #25342f;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
-/* @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-} */
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: rgba(167, 139, 250, 0.3);
+  color: #1e1b4b;
+}
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  /* Atmospheric multi-point rainy dewy ambient background */
+  background-image: 
+    radial-gradient(at 5% 5%, rgba(139, 92, 246, 0.07) 0px, transparent 45%),
+    radial-gradient(at 95% 5%, rgba(74, 124, 89, 0.08) 0px, transparent 45%),
+    radial-gradient(at 50% 45%, rgba(221, 214, 254, 0.06) 0px, transparent 55%),
+    radial-gradient(at 15% 90%, rgba(167, 243, 208, 0.08) 0px, transparent 50%),
+    radial-gradient(at 85% 90%, rgba(196, 181, 253, 0.07) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* Custom modern rainy scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(160, 190, 174, 0.5);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.5);
+}
+
+/* Rain Glass Surfaces */
+.glass-nav {
+  background: rgba(248, 251, 249, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid rgba(167, 139, 250, 0.16);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(160, 190, 174, 0.3);
+  box-shadow: 0 6px 24px -4px rgba(23, 34, 30, 0.03), 0 0 0 1px rgba(139, 92, 246, 0.03);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(139, 92, 246, 0.32);
+  box-shadow: 0 12px 32px -8px rgba(37, 52, 47, 0.07), 0 0 16px -2px rgba(139, 92, 246, 0.08);
+}
+
+.glass-sidebar {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(160, 190, 174, 0.3);
+}
+
+.glass-dropdown {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  box-shadow: 0 16px 40px -8px rgba(23, 34, 30, 0.12);
+}
+
+/* Gradient text utilities */
+.text-gradient {
+  background: linear-gradient(135deg, #6d28d9 0%, #4a7c59 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-lavender {
+  background: linear-gradient(135deg, #7c3aed 0%, #059669 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Radiant gradient buttons: Lavender into Rainy Iris & Fresh Sage */
+.btn-gradient {
+  background: linear-gradient(135deg, #7c3aed 0%, #5b66ca 45%, #10b981 100%);
+  color: #ffffff;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 14px 0 rgba(124, 58, 237, 0.28);
+}
+
+.btn-gradient:hover {
+  background: linear-gradient(135deg, #6d28d9 0%, #4f58b8 45%, #059669 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px 0 rgba(124, 58, 237, 0.38);
+}
+
+.btn-gradient:active {
+  transform: translateY(0);
+}
+
+/* Secondary calm rain button */
+.btn-rain-secondary {
+  background: rgba(232, 242, 236, 0.8);
+  color: #25342f;
+  border: 1px solid rgba(160, 190, 174, 0.5);
+  transition: all 0.2s ease;
+}
+
+.btn-rain-secondary:hover {
+  background: rgba(243, 239, 254, 0.9);
+  color: #5b21b6;
+  border-color: rgba(167, 139, 250, 0.6);
+}
+
+/* Shimmer pulse badge */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer-badge {
+  background: linear-gradient(90deg, #d97706 0%, #fef3c7 50%, #d97706 100%);
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite linear;
+}
+
+/* Pulse aura ring with lavender/sage wave */
+@keyframes aura {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+}
+
+.pulse-ring {
+  animation: aura 2.5s infinite;
+}
+
+/* Card hover lift effect */
+.card-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-3px);
 }

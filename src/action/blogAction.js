@@ -8,10 +8,6 @@ import {writeFile,mkdir} from "fs/promises";
 import { uploadAndTransform, deleteImage } from "@/action/helper/handleImage";
 import createVector from "@/action/helper/createVector";
 import mongoose from 'mongoose';
-
-const Joi = require('joi');
-const fs = require('fs');
-// Define validation schema}
 import { BlogSchema } from "@/components/joi-schemas/add-blog";
 import { trackBlogVisit } from "./helper/trackBlogVisit";
 export async function AddBlog(data) {
@@ -148,25 +144,64 @@ export async function fetchBlogs(page = 1, limit = 10, filters = {}) {
       query.author = filters.author;
     }
     
-    // Add filter for tags
-    if (filters.tags && filters.tags.length > 0) {
-      query.tags = { $in: filters.tags };
+    // Add filter for topic or tags (case-insensitive across tags, title, and description)
+    const topic = filters.topic || (filters.tags && filters.tags.length > 0 ? filters.tags[0] : null);
+    if (topic && topic !== "All") {
+      const clean = topic.replace(/^#+/, "").replace(/["']/g, "").trim();
+      const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      
+      let topicRegex;
+      if (clean.length <= 2) {
+        topicRegex = new RegExp(`(^|[^a-zA-Z0-9])${escaped}([^a-zA-Z0-9]|$)`, "i");
+      } else {
+        topicRegex = new RegExp(escaped, "i");
+      }
+
+      query.$or = [
+        { tags: { $regex: topicRegex } },
+        { title: { $regex: topicRegex } },
+        { description: { $regex: topicRegex } }
+      ];
+    } else if (filters.tags && filters.tags.length > 0) {
+      const tagRegexes = filters.tags.map(t => {
+        const cleanT = t.replace(/^#+/, "").replace(/["']/g, "").trim();
+        return new RegExp(cleanT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      });
+      query.tags = { $in: tagRegexes };
     }
     
     // Add search functionality
     if (filters.search) {
-      query.$or = [
-        { title: { $regex: filters.search, $options: 'i' } },
-        { description: { $regex: filters.search, $options: 'i' } },
+      const searchRegex = new RegExp(filters.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const searchConditions = [
+        { title: { $regex: searchRegex } },
+        { description: { $regex: searchRegex } },
+        { tags: { $regex: searchRegex } }
       ];
+
+      if (query.$or) {
+        query.$and = [
+          { $or: query.$or },
+          { $or: searchConditions }
+        ];
+        delete query.$or;
+      } else {
+        query.$or = searchConditions;
+      }
     }
     
     // Calculate skip value for pagination
     const skip = (page - 1) * limit;
+
+    // Dynamic sort option
+    let sortQuery = { date: -1 };
+    if (filters.tab === "trending") {
+      sortQuery = { views: -1, date: -1 };
+    }
     
     // Fetch blogs with pagination
     const blogs = await Blog.find(query, { content: 0 }) //Prevents premium content from being sent to unauthorized users
-      .sort({ date: -1 }) // Sort by newest first
+      .sort(sortQuery)
       .skip(skip)
       .limit(limit)
       .lean();
@@ -198,24 +233,69 @@ export async function fetchBlogs(page = 1, limit = 10, filters = {}) {
 // In your blogAction.js file
 export async function searchBlogs(searchText) {
   try {
-    const blogs = await Blog.find(
+    await connectToDB();
+    if (!searchText || !searchText.trim()) {
+      return { success: true, blogs: [] };
+    }
+    const cleanSearch = searchText.trim();
+    // 1. First try MongoDB text search
+    let blogs = await Blog.find(
       { 
         $text: { 
-          $search: searchText, 
+          $search: cleanSearch, 
           $caseSensitive: false, 
           $diacriticSensitive: false 
         } 
       },
-      { score: { $meta: "textScore" },content: 0 }
+      { score: { $meta: "textScore" }, content: 0 }
     )
     .sort({ score: { $meta: "textScore" } })
-    .limit(20);
+    .limit(30)
+    .lean();
+
+    // 2. If text search returns empty (e.g. for partial words, prefixes, hashtags), fall back to case-insensitive regex
+    if (!blogs || blogs.length === 0) {
+      const regex = new RegExp(cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      blogs = await Blog.find(
+        {
+          $or: [
+            { title: { $regex: regex } },
+            { description: { $regex: regex } },
+            { tags: { $regex: regex } },
+            { author: { $regex: regex } }
+          ]
+        },
+        { content: 0 }
+      )
+      .sort({ date: -1 })
+      .limit(30)
+      .lean();
+    }
+
     // Convert Mongoose documents to plain JavaScript objects
     const plainBlogs = JSON.parse(JSON.stringify(blogs));
     return { success: true, blogs: plainBlogs };
   } catch (error) {
-    console.error('Search error:', error);
-    return { success: false, message: 'Failed to search blogs' };
+    console.error('Search error, falling back to regex:', error);
+    try {
+      const regex = new RegExp((searchText || '').trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const fallbackBlogs = await Blog.find(
+        {
+          $or: [
+            { title: { $regex: regex } },
+            { description: { $regex: regex } },
+            { tags: { $regex: regex } }
+          ]
+        },
+        { content: 0 }
+      )
+      .sort({ date: -1 })
+      .limit(30)
+      .lean();
+      return { success: true, blogs: JSON.parse(JSON.stringify(fallbackBlogs)) };
+    } catch (fallbackErr) {
+      return { success: false, message: 'Failed to search blogs', blogs: [] };
+    }
   }
 }
 
@@ -261,6 +341,18 @@ export async function fetchBlogById(blogId) {
     }
 
     trackBlogVisit(user.username, blogId);
+    
+    // Atomically increment views and record timestamp in viewsLog for EMA trending analytics
+    Blog.findByIdAndUpdate(blogId, {
+      $inc: { views: 1 },
+      $push: {
+        viewsLog: {
+          $each: [{ date: new Date() }],
+          $slice: -50 // Keep the 50 most recent view timestamps to keep documents light
+        }
+      }
+    }).catch(err => console.error("Error logging blog view event:", err));
+
     return {
       success: true,
       status: 200,
@@ -416,27 +508,47 @@ export async function fetchHistory() {
 
 const RECOMMENDER_URL = process.env.RECOMMENDER_API_URL // e.g. "https://api.myapp.com"
 
-export async function getRecommendedBlogs(blogIds, k = 5,candidate_pool_size=30) {
-  // 1) Call the Python recommender
-  const res = await fetch(`${RECOMMENDER_URL}/recommend`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ blog_ids: blogIds, k,candidate_pool_size })
-  })
-  if (!res.ok) {
-    console.error('Recommender error:', await res.text())
-    return []
+export async function getRecommendedBlogs(blogIds, k = 5, candidate_pool_size = 30) {
+  try {
+    if (RECOMMENDER_URL) {
+      // 1) Call the Python recommender with 3s timeout
+      const res = await fetch(`${RECOMMENDER_URL}/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blog_ids: blogIds, k, candidate_pool_size }),
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) {
+        const { recommended_ids } = await res.json();
+        if (recommended_ids && recommended_ids.length > 0) {
+          await connectToDB();
+          const objectIds = recommended_ids.map(id => new mongoose.Types.ObjectId(id));
+          const blogs = await Blog.find({ _id: { $in: objectIds } })
+            .sort({ date: -1 })
+            .lean();
+          return JSON.parse(JSON.stringify(blogs));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Recommender unavailable or timed out, falling back to recent stories:', err.message);
   }
-  const { recommended_ids } = await res.json()
-  console.log('Recommended blog IDs:', recommended_ids)
-  // 2) Fetch full blog docs from Mongo
-  await connectToDB()
-  const objectIds = recommended_ids.map(id => new mongoose.Types.ObjectId(id))
-  const blogs = await Blog.find({ _id: { $in: objectIds } })
-    .sort({ date: -1 })
-    .lean()
 
-  return JSON.parse(JSON.stringify(blogs))
+  // Graceful Fallback: Fetch recent stories excluding current blog
+  try {
+    await connectToDB();
+    const excludeIds = (blogIds || [])
+      .filter(id => mongoose.isValidObjectId(id))
+      .map(id => new mongoose.Types.ObjectId(id));
+    const fallbackBlogs = await Blog.find({ _id: { $nin: excludeIds } })
+      .sort({ date: -1 })
+      .limit(k)
+      .lean();
+    return JSON.parse(JSON.stringify(fallbackBlogs));
+  } catch (fallbackErr) {
+    console.error('Fallback query error:', fallbackErr);
+    return [];
+  }
 }
 
 export async function fetchBlogsByIds(blogIds = []) {
@@ -473,3 +585,295 @@ export async function fetchBlogsByIds(blogIds = []) {
     };
   }
 }
+
+export async function toggleLikeBlog(blogId) {
+  try {
+    await connectToDB();
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+    if (!token) {
+      return {
+        success: false,
+        status: 401,
+        message: "Please sign in to like this story",
+      };
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return {
+        success: false,
+        status: 404,
+        message: "User not found",
+      };
+    }
+
+    const blog = await Blog.findById(blogId);
+    if (!blog) {
+      return {
+        success: false,
+        status: 404,
+        message: "Blog not found",
+      };
+    }
+
+    const username = user.username;
+    const likes = Array.isArray(blog.likes) ? blog.likes : [];
+    const alreadyLiked = likes.includes(username);
+
+    let updatedBlog;
+    if (alreadyLiked) {
+      updatedBlog = await Blog.findByIdAndUpdate(
+        blogId,
+        { $pull: { likes: username } },
+        { new: true }
+      );
+    } else {
+      updatedBlog = await Blog.findByIdAndUpdate(
+        blogId,
+        { $addToSet: { likes: username } },
+        { new: true }
+      );
+    }
+
+    const newLikes = updatedBlog?.likes || [];
+    return {
+      success: true,
+      status: 200,
+      liked: !alreadyLiked,
+      likeCount: newLikes.length,
+      likes: newLikes
+    };
+  } catch (error) {
+    console.error("Error toggling blog like:", error);
+    return {
+      success: false,
+      status: 500,
+      message: error.message || "Failed to toggle like",
+    };
+  }
+}
+
+export async function addBlogComment(blogId, content) {
+  try {
+    await connectToDB();
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+    if (!token) {
+      return {
+        success: false,
+        status: 401,
+        message: "Please sign in to leave a comment",
+      };
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return {
+        success: false,
+        status: 404,
+        message: "User not found",
+      };
+    }
+
+    const trimmedContent = (content || '').trim();
+    if (!trimmedContent) {
+      return {
+        success: false,
+        status: 400,
+        message: "Comment cannot be empty",
+      };
+    }
+    if (trimmedContent.length > 1000) {
+      return {
+        success: false,
+        status: 400,
+        message: "Comment exceeds maximum limit of 1000 characters",
+      };
+    }
+
+    const newComment = {
+      username: user.username,
+      content: trimmedContent,
+      createdAt: new Date()
+    };
+
+    const updatedBlog = await Blog.findByIdAndUpdate(
+      blogId,
+      { $push: { comments: newComment } },
+      { new: true }
+    );
+
+    if (!updatedBlog) {
+      return {
+        success: false,
+        status: 404,
+        message: "Blog not found",
+      };
+    }
+
+    return {
+      success: true,
+      status: 200,
+      message: "Comment posted successfully",
+      comment: JSON.parse(JSON.stringify(newComment)),
+      comments: JSON.parse(JSON.stringify(updatedBlog.comments || []))
+    };
+  } catch (error) {
+    console.error("Error posting comment:", error);
+    return {
+      success: false,
+      status: 500,
+      message: error.message || "Failed to post comment",
+    };
+  }
+}
+
+export async function uploadInlineImage(formData) {
+  try {
+    const file = formData.get('file');
+    if (!file) {
+      return { success: false, message: 'No file provided' };
+    }
+
+    try {
+      const { imagePath } = await uploadAndTransform(file);
+      if (imagePath) {
+        return { success: true, url: imagePath };
+      }
+    } catch (uploadErr) {
+      console.warn('Cloudinary upload error, falling back to data URL:', uploadErr.message);
+    }
+
+    // Fallback: Convert to Base64 Data URL so user is never blocked
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString('base64');
+    const mimeType = file.type || 'image/jpeg';
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    return { success: true, url: dataUrl };
+  } catch (error) {
+    console.error('Error in uploadInlineImage:', error);
+    return { success: false, message: error.message || 'Failed to upload image' };
+  }
+}
+
+export async function toggleBookmarkBlog(blogId) {
+  try {
+    await connectToDB();
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+    if (!token) {
+      return {
+        success: false,
+        status: 401,
+        message: "Please sign in to bookmark stories",
+      };
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return {
+        success: false,
+        status: 404,
+        message: "User not found",
+      };
+    }
+
+    const currentBookmarks = Array.isArray(user.bookmarks) 
+      ? user.bookmarks.map(id => id.toString()) 
+      : [];
+    const isBookmarked = currentBookmarks.includes(blogId.toString());
+
+    let updatedUser;
+    if (isBookmarked) {
+      updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        { $pull: { bookmarks: new mongoose.Types.ObjectId(blogId) } },
+        { new: true }
+      );
+    } else {
+      updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        { $addToSet: { bookmarks: new mongoose.Types.ObjectId(blogId) } },
+        { new: true }
+      );
+    }
+
+    const updatedBookmarks = (updatedUser?.bookmarks || []).map(id => id.toString());
+
+    return {
+      success: true,
+      status: 200,
+      bookmarked: !isBookmarked,
+      bookmarks: updatedBookmarks
+    };
+  } catch (error) {
+    console.error("Error toggling bookmark:", error);
+    return {
+      success: false,
+      status: 500,
+      message: error.message || "Failed to toggle bookmark",
+    };
+  }
+}
+
+export async function fetchBookmarkedBlogs(fallbackIds = []) {
+  try {
+    await connectToDB();
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+    let targetIds = [];
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+        const user = await User.findById(decoded.id);
+        if (user && Array.isArray(user.bookmarks)) {
+          targetIds = user.bookmarks.map(id => id.toString());
+        }
+      } catch (err) {
+        console.warn("Token verification failed in fetchBookmarkedBlogs:", err.message);
+      }
+    }
+
+    // Merge with any client fallbackIds that are valid ObjectIds
+    if (Array.isArray(fallbackIds) && fallbackIds.length > 0) {
+      fallbackIds.forEach(id => {
+        if (mongoose.Types.ObjectId.isValid(id) && !targetIds.includes(id.toString())) {
+          targetIds.push(id.toString());
+        }
+      });
+    }
+
+    if (targetIds.length === 0) {
+      return {
+        success: true,
+        status: 200,
+        blogs: []
+      };
+    }
+
+    const objectIds = targetIds.map(id => new mongoose.Types.ObjectId(id));
+    const blogs = await Blog.find({ _id: { $in: objectIds } }, { content: 0 })
+      .sort({ date: -1 })
+      .lean();
+
+    return {
+      success: true,
+      status: 200,
+      blogs: JSON.parse(JSON.stringify(blogs))
+    };
+  } catch (error) {
+    console.error("Error fetching bookmarked blogs:", error);
+    return {
+      success: false,
+      status: 500,
+      message: error.message || "Failed to fetch bookmarks",
+      blogs: []
+    };
+  }
+}
+
+

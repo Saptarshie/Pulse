@@ -2,12 +2,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  PencilIcon, 
+  PencilSquareIcon, 
   TrashIcon, 
-  EyeIcon,
-  TagIcon,
+  EyeIcon, 
+  TagIcon, 
   CalendarIcon,
-  SparklesIcon
+  SparklesIcon,
+  GlobeAltIcon
 } from "@heroicons/react/24/outline";
 import Image from 'next/image';
 import Link from 'next/link';
@@ -19,8 +20,12 @@ export default function CreatorBlogCard({ blog, refreshBlogs }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   const formatDate = (dateString) => {
-    const options = { year: 'numeric', month: 'short', day: 'numeric' };
-    return new Date(dateString).toLocaleDateString('en-US', options);
+    if (!dateString) return 'Draft';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   };
   
   const handleEdit = () => {
@@ -43,110 +48,127 @@ export default function CreatorBlogCard({ blog, refreshBlogs }) {
     setIsDeleting(true);
     try {
       const response = await deleteBlog(blog._id);
-      if (response.success) {
-        refreshBlogs();
+      if (response?.success) {
+        if (refreshBlogs) refreshBlogs();
       } else {
-        console.error("Failed to delete blog:", response.message);
+        console.error("Failed to delete story:", response?.message);
       }
     } catch (error) {
-      console.error("Error deleting blog:", error);
+      console.error("Error deleting story:", error);
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
     }
   };
   
-  // Get default placeholder if no image
-  const blogImage = blog.image.imagePath || '/images/blog-placeholder.jpg';
+  const blogImage = blog?.image?.imagePath;
   
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden transition-all duration-300 hover:shadow-lg border border-gray-200">
-      {/* Image Section */}
-      <div className="relative h-48 w-full">
-        <Image
-          src={blogImage}
-          alt={blog.title}
-          fill
-          className="object-cover"
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-        />
-        {blog.isPremium && (
-          <div className="absolute top-0 right-0 bg-gradient-to-r from-yellow-400 to-yellow-600 text-white text-xs font-bold px-2 py-1 rounded-bl-lg flex items-center">
-            <SparklesIcon className="h-3 w-3 mr-1" />
-            PREMIUM
-          </div>
-        )}
-      </div>
+    <div className="glass-card rounded-2xl border border-slate-200/90 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between">
       
-      {/* Content Section */}
-      <div className="p-4">
-        <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-2">{blog.title}</h3>
-        
-        <p className="text-gray-600 text-sm mb-4 line-clamp-3">{blog.description}</p>
-        
-        {/* Tags and Date */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {blog.tags && blog.tags.slice(0, 3).map((tag, index) => (
-            <span key={index} className="bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full flex items-center">
-              <TagIcon className="h-3 w-3 mr-1" />
-              {tag}
+      <div>
+        {/* Media / Header Banner */}
+        <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
+          {blogImage ? (
+            <Image
+              src={blogImage}
+              alt={blog.title || "Story thumbnail"}
+              fill
+              className="object-cover hover:scale-105 transition-transform duration-300"
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-400 bg-gradient-to-tr from-slate-100 to-indigo-50">
+              <GlobeAltIcon className="h-10 w-10 text-slate-300" />
+            </div>
+          )}
+
+          {/* Status Badges */}
+          <div className="absolute top-3 left-3 flex items-center space-x-1.5">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-900/85 text-emerald-100 border border-emerald-400/30 backdrop-blur-md shadow-sm">
+              Live
             </span>
-          ))}
-          {blog.tags && blog.tags.length > 3 && (
-            <span className="bg-gray-50 text-gray-500 text-xs px-2 py-1 rounded-full">
-              +{blog.tags.length - 3} more
-            </span>
+          </div>
+
+          {blog.isPremium && (
+            <div className="absolute top-3 right-3 bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full shadow-sm flex items-center">
+              <SparklesIcon className="h-3 w-3 mr-1" />
+              Premium
+            </div>
           )}
         </div>
         
-        {/* Date */}
-        <div className="flex items-center text-gray-500 text-xs mb-4">
-          <CalendarIcon className="h-3 w-3 mr-1" />
-          {formatDate(blog.date)}
+        {/* Content Details */}
+        <div className="p-4 sm:p-5">
+          <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1.5 line-clamp-2 hover:text-purple-700 transition-colors">
+            {blog.title || "Untitled Story"}
+          </h3>
+          
+          <p className="text-slate-600 text-xs sm:text-sm mb-3 line-clamp-2 leading-relaxed">
+            {blog.description || "No excerpt provided."}
+          </p>
+          
+          {/* Tags */}
+          {blog.tags && blog.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {blog.tags.slice(0, 3).map((tag, index) => (
+                <span key={index} className="bg-emerald-50/80 text-emerald-800 border border-emerald-200/50 text-[11px] font-medium px-2 py-0.5 rounded-md">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
+          
+          <div className="flex items-center text-slate-400 text-xs">
+            <CalendarIcon className="h-3.5 w-3.5 mr-1 text-slate-400" />
+            <span>{formatDate(blog.date)}</span>
+          </div>
         </div>
+      </div>
+      
+      {/* Management Actions */}
+      <div className="px-4 sm:px-5 py-3 bg-white/60 border-t border-emerald-900/10 flex items-center justify-between">
+        <button 
+          onClick={handlePreview}
+          className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-purple-700 transition-colors"
+        >
+          <EyeIcon className="h-3.5 w-3.5 mr-1" />
+          <span>Preview</span>
+        </button>
         
-        {/* Actions */}
-        <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+        <div className="flex items-center space-x-2">
           <button 
-            onClick={handlePreview}
-            className="inline-flex items-center text-sm text-gray-600 hover:text-blue-600 transition-colors"
+            onClick={handleEdit}
+            className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-emerald-700 transition-colors"
           >
-            <EyeIcon className="h-4 w-4 mr-1" />
-            Preview
+            <PencilSquareIcon className="h-3.5 w-3.5 mr-1" />
+            <span>Edit</span>
           </button>
           
-          <div className="flex space-x-2">
-            <button 
-              onClick={handleEdit}
-              className="inline-flex items-center px-3 py-1 text-sm text-indigo-700 bg-indigo-50 rounded hover:bg-indigo-100 transition-colors"
-            >
-              <PencilIcon className="h-3 w-3 mr-1" />
-              Edit
-            </button>
-            
-            <button 
-              onClick={handleDeleteConfirm}
-              className="inline-flex items-center px-3 py-1 text-sm text-red-700 bg-red-50 rounded hover:bg-red-100 transition-colors"
-              disabled={isDeleting}
-            >
-              <TrashIcon className="h-3 w-3 mr-1" />
-              Delete
-            </button>
-          </div>
+          <button 
+            onClick={handleDeleteConfirm}
+            className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+            disabled={isDeleting}
+          >
+            <TrashIcon className="h-3.5 w-3.5 mr-1" />
+            <span>Delete</span>
+          </button>
         </div>
       </div>
       
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Blog Post</h3>
-            <p className="text-gray-600 mb-4">Are you sure you want to delete "{blog.title}"? This action cannot be undone.</p>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass-card bg-white p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-200 animate-in fade-in zoom-in-95">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Delete Story</h3>
+            <p className="text-slate-600 text-xs sm:text-sm mb-6 leading-relaxed">
+              Are you sure you want to delete <span className="font-semibold text-slate-900">"{blog.title}"</span>? This will remove the story from the social feed permanently.
+            </p>
             
-            <div className="flex justify-end space-x-2">
+            <div className="flex justify-end space-x-2.5">
               <button 
                 onClick={handleDeleteCancel}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
                 disabled={isDeleting}
               >
                 Cancel
@@ -154,20 +176,10 @@ export default function CreatorBlogCard({ blog, refreshBlogs }) {
               
               <button 
                 onClick={handleDelete}
-                className="px-4 py-2 text-white bg-red-600 rounded hover:bg-red-700 transition-colors flex items-center"
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors flex items-center shadow-sm"
                 disabled={isDeleting}
               >
-                {isDeleting ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete'
-                )}
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>

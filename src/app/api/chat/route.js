@@ -13,9 +13,9 @@ const client = new OpenAI({
 });
 
 export async function POST(req) {
-  // Fixed: Changed 'request' to 'req'
-  const { messages, context,option } = await req.json();
-  if(option && option==='ask-blog'){
+  try {
+    const { messages, context, option } = await req.json();
+    if(option && option==='ask-blog'){
     const systemPrompt = `You are a helpful AI assistant. The user will ask questions about this blog post and You would ans it in good quality, concise and very well-structured (and well-formatted) markdown format ,... Here's the blog content for context:\n\n${context}`;
     
     // Prepend system prompt
@@ -110,5 +110,17 @@ export async function POST(req) {
     const stream = OpenAIStream(response);
     return new Response(stream);
   }
+  } catch (error) {
+    console.error("API Chat route error:", error);
+    return new Response(
+      JSON.stringify({ error: error.message || "Internal server error in AI chat" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
+  // Fallback if option didn't match
+  return new Response(
+    JSON.stringify({ error: "Invalid or missing option parameter" }),
+    { status: 400, headers: { "Content-Type": "application/json" } }
+  );
 }

@@ -14,6 +14,7 @@ const nextConfig = {
     ];
   },
   experimental: {
+    cpus: 1,
     serverActions: {
       allowedOrigins: ['localhost:3000', 'n2g9pcp2-3000.inc1.devtunnels.ms'],
     },

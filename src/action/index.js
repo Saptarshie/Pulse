@@ -8,7 +8,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import nodemailer from "nodemailer";
-const Joi = require('joi');
+import Joi from "joi";
 // Define validation schema
 const SignUpSchema = Joi.object({
   username: Joi.string().min(2).max(50).required(),

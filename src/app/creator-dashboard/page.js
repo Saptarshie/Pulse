@@ -1,28 +1,11 @@
 'use client';
-// import { fetchUserAction } from "@/action"
-// export default async function CreatorDashboard() {
-//   const res = await fetchUserAction();
-//   console.log("User is : ",res);
-//     return (
-//     <div>
-//       <h1>Creator Dashboard
-//       </h1>
-//     </div>
-//     )
-//   }
-  
 
-
-import { useState, useEffect,useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { fetchBlogs } from '@/action/blogAction';
 import CreatorBlogCard from '@/components/cards/CreatorBlogCard';
 import Loading from '../loading';
-// import { getServerSideProps } from './get-server-side-prop';
-// You'll need to install these if you don't have them:
-// npm install @heroicons/react
-
 import { 
   BookOpenIcon, 
   PlusCircleIcon, 
@@ -31,256 +14,240 @@ import {
   UserCircleIcon,
   CogIcon,
   Bars3Icon as MenuIcon,
-  XMarkIcon as XIcon
+  XMarkIcon as XIcon,
+  SparklesIcon,
+  ArrowTrendingUpIcon,
+  CheckBadgeIcon
 } from "@heroicons/react/24/outline";
-// import {MenuIcon} from "@components/icons"
+import CreatorSidebar from "@/components/creator-sidebar";
+
 export default function CreatorDashboard({ initialData }) {
   const [user, setUser] = useState(initialData?.user || {});
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const router = useRouter();
   const [BlogDetails, setBlogDetails] = useState([]);
   const [BlogsLoading, setBlogsLoading] = useState(true);
   const [error, setError] = useState(null);
-  // For client-side rendering
+
+  // Fetch user data
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // If we don't have initialData (like when navigating client-side)
         if (!initialData) {
           const module = await import('@/action');
           const { fetchUserAction } = module;
           const res = await fetchUserAction();
-          if (res.success) {
+          if (res?.success) {
             setUser(res.user);
-            console.log("Fetched user data:", res.user);
             setBlogsLoading(true);
           }
         }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
+      } catch (err) {
+        console.error("Error fetching user data:", err);
       }
     };
     
     fetchData();
   }, [initialData]);
-  useEffect(() => {
-    const getBlogDetails = async () => {
-      console.log("getBlogDetails called ...");
-      // qwerty
-      if (user.blogs && user.blogs.length > 0) {
-        try {
-          const result = await fetchBlogs(1,3,{ ids: user.blogs.slice(-3) });
-          console.log("fetchBlogs result:", result);
-          if (result.success) {
-            setBlogDetails(result.blogs);
-            setError(null);
-          } else {
-            // Set an error message if the fetch fails
-            setError(result.message || 'Could not load blogs.');
-          }
-        } catch (err) {
-          setError('An unexpected error occurred.');
-          console.error("Error fetching result: ",err);
-        } finally {
-          setBlogsLoading(false);
+
+  // Fetch creator's stories
+  const loadCreatorBlogs = useCallback(async () => {
+    if (user?.blogs && user.blogs.length > 0) {
+      try {
+        setBlogsLoading(true);
+        const result = await fetchBlogs(1, 6, { ids: user.blogs.slice(-6) });
+        if (result?.success) {
+          setBlogDetails(result.blogs);
+          setError(null);
+        } else {
+          setError(result?.message || 'Could not load stories.');
         }
+      } catch (err) {
+        setError('An unexpected error occurred.');
+        console.error("Error fetching creator stories: ", err);
+      } finally {
+        setBlogsLoading(false);
       }
-    };
-    getBlogDetails();
+    } else {
+      setBlogsLoading(false);
+    }
   }, [user]);
 
-    const refreshBlogs = useCallback(() => {
-    setBlogsLoading(true);
-    // Reset blog data instead of mutating initialData
-    setBlogData({});
-    // Refetch blogs
-    fetchBlogs(filter={ ids: user.blogs }).then(result => {
-      if (result.success) {
-        setBlogDetails(result.blogs);
-      }
-      else {
-        setError(result.message || 'Could not load blogs.');
-      }
-      setBlogsLoading(false);
-    }).catch(err => {
-      setError('An unexpected error occurred.');
-      console.error(err);
-      setBlogsLoading(false);
-    });
-  }, [user]);
-  
+  useEffect(() => {
+    loadCreatorBlogs();
+  }, [loadCreatorBlogs]);
+
+  const userInitials = user?.username ? user.username.slice(0, 2).toUpperCase() : "CR";
+
   return (
-    <>
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-                      fixed top-14 bottom-0 left-0 z-30 w-64 bg-gradient-to-br from-indigo-800 to-purple-900 
-                      transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-auto`}>
-        <div className="flex items-center justify-between h-16 px-6 bg-indigo-900">
-          <div className="flex items-center">
-            <span className="text-white text-xl font-semibold">Creator Studio</span>
-          </div>
-          <button 
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-gray-300 hover:text-white"
+    <div className="min-h-screen flex flex-col lg:flex-row">
+      
+      {/* Reusable Petrichor & Mist Sticky Sidebar */}
+      <CreatorSidebar
+        user={user}
+        activeTab="dashboard"
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+      />
+      
+      {/* Main Studio View */}
+      <div className="flex-1 w-full min-w-0">
+        
+        {/* Top bar for mobile toggle */}
+        <div className="lg:hidden glass-nav px-4 py-3 flex items-center justify-between">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-1.5 rounded-xl text-slate-700 hover:bg-white/80 transition-colors"
           >
-            <XIcon className="h-6 w-6" />
+            <MenuIcon className="h-6 w-6" />
           </button>
-        </div>
-        
-        {/* User info */}
-        <div className="px-6 py-4 border-b border-indigo-700">
-          <div className="flex items-center space-x-3">
-            <div className="bg-indigo-600 rounded-full p-2">
-              <UserCircleIcon className="h-8 w-8 text-white" />
-            </div>
-            <div>
-              <div className="text-white font-medium">{user.username || "Username"}</div>
-              <div className="text-indigo-300 text-sm">{user.email || "email@example.com"}</div>
-            </div>
+          <div className="flex items-center space-x-1.5">
+            <span className="font-extrabold text-sm text-slate-900">Creator Studio</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Live
+            </span>
           </div>
+          <Link
+            href="/creator-dashboard/create"
+            className="p-1.5 rounded-xl text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
+          >
+            <PlusCircleIcon className="h-5 w-5" />
+          </Link>
         </div>
-        
-        {/* Navigation */}
-        <nav className="px-3 py-4 space-y-2">
-          <Link href="/creator-dashboard"
-                onClick={() => setActiveTab('dashboard')}
-                className={`flex items-center px-3 py-2 text-white rounded-md transition-colors 
-                           ${activeTab === 'dashboard' ? 'bg-indigo-700' : 'hover:bg-indigo-700/50'}`}>
-            <ChartBarIcon className="h-5 w-5 mr-3" />
-            <span>Dashboard</span>
-          </Link>
+
+        {/* Studio Content Body */}
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
-          <Link href="/creator-dashboard/blogs"
-                onClick={() => setActiveTab('blogs')}
-                className={`flex items-center px-3 py-2 text-white rounded-md transition-colors 
-                           ${activeTab === 'blogs' ? 'bg-indigo-700' : 'hover:bg-indigo-700/50'}`}>
-            <BookOpenIcon className="h-5 w-5 mr-3" />
-            <span>My Blogs</span>
-          </Link>
-          
-          <Link href="/creator-dashboard/create"
-                onClick={() => setActiveTab('create')}
-                className={`flex items-center px-3 py-2 text-white rounded-md transition-colors 
-                           ${activeTab === 'create' ? 'bg-indigo-700' : 'hover:bg-indigo-700/50'}`}>
-            <PlusCircleIcon className="h-5 w-5 mr-3" />
-            <span>Create New Blog</span>
-          </Link>
-          
-          <Link href="/creator-dashboard/earnings"
-                onClick={() => setActiveTab('earnings')}
-                className={`flex items-center px-3 py-2 text-white rounded-md transition-colors 
-                           ${activeTab === 'earnings' ? 'bg-indigo-700' : 'hover:bg-indigo-700/50'}`}>
-            <CurrencyDollarIcon className="h-5 w-5 mr-3" />
-            <span>My Earnings</span>
-          </Link>
-          
-          <div className="pt-4 mt-4 border-t border-indigo-700">
-            <Link href="/settings"
-                  onClick={() => setActiveTab('settings')}
-                  className="flex items-center px-3 py-2 text-white rounded-md transition-colors hover:bg-indigo-700/50">
-              <CogIcon className="h-5 w-5 mr-3" />
-              <span>Settings</span>
+          {/* Welcome Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                  Welcome back, {user.username || "Creator"}!
+                </h1>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100/80 text-purple-800 border border-purple-200/60">
+                  <SparklesIcon className="h-3.5 w-3.5 text-purple-600 mr-1" />
+                  Creator
+                </span>
+              </div>
+              <p className="text-slate-600 text-sm mt-1">
+                Monitor your network metrics, subscriber community, and content reach in calm focus.
+              </p>
+            </div>
+
+            <Link
+              href="/creator-dashboard/create"
+              className="btn-gradient inline-flex items-center space-x-2 px-5 py-2.5 rounded-full text-xs font-bold text-white shadow-md self-start sm:self-auto"
+            >
+              <PlusCircleIcon className="h-4 w-4" />
+              <span>Write New Story</span>
             </Link>
           </div>
-        </nav>
-      </div>
-      
-      {/* Main content */}
-      <div className="flex-1">
-        {/* Top header */}
-        <header className="bg-white shadow-sm">
-          <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden text-gray-500 hover:text-gray-700"
-            >
-              <MenuIcon className="h-6 w-6" />
-            </button>
+
+          {/* Metric Cards Grid - Petrichor & Mist Theme */}
+          <div className="grid gap-5 mb-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             
-            <h1 className="text-2xl font-semibold text-gray-900">
-              Welcome, {user.username || "Creator"}!
-            </h1>
-            
-            <div>
-              {/* User profile picture or avatar could go here */}
-            </div>
-          </div>
-        </header>
-        
-        {/* Dashboard content */}
-        <main className="px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid gap-6 mb-8 md:grid-cols-2 lg:grid-cols-3">
-            {/* Stats Card: Blogs */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex items-center">
-              <div className="p-3 rounded-full bg-blue-100 bg-opacity-80 mr-4">
-                <BookOpenIcon className="h-8 w-8 text-blue-600" />
+            {/* Metric 1: Stories - Dewy Lavender */}
+            <div className="glass-card rounded-2xl p-5 border border-purple-200/40 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 rounded-2xl bg-purple-50 text-purple-700 border border-purple-100/80">
+                <BookOpenIcon className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Blogs</p>
-                <p className="text-3xl font-bold text-gray-900">{user.blogs?.length || 0}</p>
+                <p className="text-xs font-semibold text-slate-500">Published Stories</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-0.5">
+                  {user.blogs?.length || 0}
+                </p>
               </div>
             </div>
             
-            {/* Stats Card: Subscribers */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex items-center">
-              <div className="p-3 rounded-full bg-green-100 bg-opacity-80 mr-4">
-                <UserCircleIcon className="h-8 w-8 text-green-600" />
+            {/* Metric 2: Subscribers - Dewy Sage */}
+            <div className="glass-card rounded-2xl p-5 border border-emerald-200/40 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-100/80">
+                <UserCircleIcon className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-600">Subscribers</p>
-                <p className="text-3xl font-bold text-gray-900">{user?.subscriberCount}</p>
+                <p className="text-xs font-semibold text-slate-500">Active Subscribers</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-0.5">
+                  {user?.subscriberCount >= 0 ? user.subscriberCount : 0}
+                </p>
               </div>
             </div>
             
-            {/* Stats Card: Earnings (placeholder) */}
-            <div className="bg-white rounded-lg shadow-sm p-6 flex items-center">
-              <div className="p-3 rounded-full bg-purple-100 bg-opacity-80 mr-4">
-                <CurrencyDollarIcon className="h-8 w-8 text-purple-600" />
+            {/* Metric 3: Earnings - Rainy Iris */}
+            <div className="glass-card rounded-2xl p-5 border border-indigo-200/40 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 rounded-2xl bg-indigo-50 text-indigo-700 border border-indigo-100/80">
+                <CurrencyDollarIcon className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-600">Earnings</p>
-                <p className="text-3xl font-bold text-gray-900">${user?.amount || 0}</p> sepolia-ETH 
+                <p className="text-xs font-semibold text-slate-500">Sepolia ETH Revenue</p>
+                <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-0.5">
+                  {user?.amount || 0} <span className="text-sm font-semibold text-emerald-700">ETH</span>
+                </p>
               </div>
             </div>
           </div>
           
-          {/* Recent blog posts */}
-          <div className="bg-white rounded-lg shadow-sm my-6">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="text-lg font-medium text-gray-900">Recent Blog Posts</h2>
-              <Link href="/creator-dashboard/blogs" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-                View all
+          {/* Recent Stories Stream */}
+          <div className="glass-card rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden mb-8">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                  Recent Stories & Posts
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Manage your recent publications on Pulse
+                </p>
+              </div>
+              <Link 
+                href="/creator-dashboard/blogs" 
+                className="text-indigo-600 hover:text-indigo-700 text-xs font-bold transition-colors"
+              >
+                View all stories →
               </Link>
             </div>
-              {user.blogs && user.blogs.length > 0 ? (
-                BlogsLoading ? (<div><Loading/></div>) : (<div className="divide-y divide-gray-200 ">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1">
-                  {BlogDetails.slice(0, 5).map((blog) => (
-                    <CreatorBlogCard key={blog.id} blog={blog} refreshBlogs={refreshBlogs} />
+
+            <div className="p-6">
+              {BlogsLoading ? (
+                <div className="py-12">
+                  <Loading />
+                </div>
+              ) : BlogDetails && BlogDetails.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {BlogDetails.map((blog) => (
+                    <CreatorBlogCard 
+                      key={blog._id} 
+                      blog={blog} 
+                      refreshBlogs={loadCreatorBlogs} 
+                    />
                   ))}
-                  </div>
-                </div>)
+                </div>
               ) : (
-                <div className="px-6 py-12 text-center">
-                  <div className="mx-auto w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                    <PlusCircleIcon className="h-12 w-12 text-gray-400" />
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center mx-auto mb-4">
+                    <SparklesIcon className="h-8 w-8" />
                   </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-1">No blogs yet</h3>
-                  <p className="text-gray-500 mb-6">Start creating content to grow your audience</p>
-                  <button onClick={() => router.push('/creator-dashboard/create')}
-                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
-                    <PlusCircleIcon className="h-5 w-5 mr-2" />
-                    Create New Blog
+                  <h3 className="text-base font-bold text-slate-900 mb-1">
+                    No stories published yet
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto mb-6">
+                    Ready to broadcast your thoughts to the network? Create your first piece and engage your followers.
+                  </p>
+                  <button 
+                    onClick={() => router.push('/creator-dashboard/create')}
+                    className="btn-gradient inline-flex items-center space-x-2 px-5 py-2.5 rounded-full text-xs font-bold text-white shadow-md"
+                  >
+                    <PlusCircleIcon className="h-4 w-4" />
+                    <span>Create Your First Story</span>
                   </button>
                 </div>
               )}
             </div>
+          </div>
+
         </main>
       </div>
+
     </div>
-    </>
   );
 }
-

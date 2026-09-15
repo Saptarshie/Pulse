@@ -1,10 +1,10 @@
-import Image from "next/image";
-import LogoutButton from "@/components/buttons/logout-button";
 import BlogList from "@/components/blog-feed/blog-list";
-export default function Home() {
+import { getTrendingTopicsAndCreators } from "@/action/trendingAction";
+
+export default async function Home() {
+  const trendingData = await getTrendingTopicsAndCreators();
+
   return (
-    <>
-    <BlogList/>
-    </>
+    <BlogList initialTrending={trendingData} />
   );
 }
