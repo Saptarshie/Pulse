@@ -99,9 +99,11 @@ graph TB
         Editor["TipTap Rich Editor<br/>(Inline Images + Pulse AI)"]
     end
 
-    subgraph SignalingServer ["Signaling & Real-Time Tier (Node.js)"]
-        WSS["WebSocket Server (:3005)<br/>(Signaling + Realtime DMs)"]
-        SSE["Next.js SSE Route<br/>(/api/messages/stream)"]
+    subgraph SignalingServer ["Signaling & Real-Time Tier (Next.js 15 & Node.js)"]
+        SSE["Next.js SSE Call Stream<br/>(/api/call/stream)"]
+        SignalAPI["Next.js Call Signaling API<br/>(/api/call/signal)"]
+        MsgSSE["Next.js Message Stream<br/>(/api/messages/stream)"]
+        WSS["WebSocket Server (:3005)<br/>(Local Dev Standalone)"]
     end
 
     subgraph BackendApp ["Application & Server Tier (Next.js 15)"]

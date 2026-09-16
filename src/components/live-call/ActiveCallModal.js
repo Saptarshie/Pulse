@@ -31,6 +31,7 @@ export default function ActiveCallModal({
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
 
   // Attach local stream to video element
   useEffect(() => {
@@ -46,6 +47,14 @@ export default function ActiveCallModal({
     }
   }, [remoteStream, isMinimized]);
 
+  // Always attach remote stream to audio element so voice is heard in audio/video/minimized calls
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.play().catch(() => {});
+    }
+  }, [remoteStream]);
+
   if (callState === "idle" || callState === "incoming") return null;
 
   const isAudioCall = callType === "audio";
@@ -56,6 +65,8 @@ export default function ActiveCallModal({
   if (isMinimized) {
     return (
       <div className="fixed bottom-6 right-6 z-[9999] flex items-center space-x-3 rounded-2xl border border-white/15 bg-slate-900/90 px-4 py-3 shadow-2xl backdrop-blur-xl animate-fade-in text-white select-none">
+        {/* Hidden Audio Player so voice continues streaming while reading/browsing */}
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
         {/* Pulsing indicator */}
         <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
           <div className="absolute inset-0 rounded-full bg-purple-500/30 animate-ping" />
@@ -119,6 +130,8 @@ export default function ActiveCallModal({
   // Full Call Window Overlay
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-xl animate-fade-in">
+      {/* Hidden Audio Player ensuring remote stream is audible in all scenarios */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       <div className="relative flex flex-col h-full max-h-[88vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-white/15 bg-slate-900/95 shadow-2xl backdrop-blur-2xl">
         {/* Top Header Bar */}
         <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-slate-950/80 via-slate-950/40 to-transparent">
