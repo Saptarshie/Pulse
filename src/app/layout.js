@@ -13,13 +13,62 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Pulse — Social Content & Creator Network",
-  description: "Discover inspiring stories, follow leading creators, and monetize high-impact content in a next-generation decentralized social network.",
-  keywords: ["pulse", "social platform", "creator network", "web3 publishing", "stories", "articles", "feed"],
+  metadataBase: new URL("https://onlypain.in"),
+  title: {
+    default: "Pulse — Social Content & Creator Network",
+    template: "%s | Pulse",
+  },
+  description:
+    "Pulse (onlypain.in) is a next-generation social content network and creator publishing platform. Discover trending stories, connect in real-time with WebRTC live calls, and monetize high-impact content with Web3.",
+  applicationName: "Pulse",
+  authors: [{ name: "Pulse Creators", url: "https://onlypain.in" }],
+  generator: "Next.js",
+  keywords: [
+    "Pulse",
+    "onlypain.in",
+    "social content network",
+    "creator economy",
+    "Web3 publishing",
+    "WebRTC live calling",
+    "Ethereum subscriptions",
+    "trending stories",
+    "real-time messaging",
+    "decentralized blogging",
+  ],
+  referrer: "origin-when-cross-origin",
+  creator: "Pulse Team",
+  publisher: "Pulse",
+  alternates: {
+    canonical: "https://onlypain.in",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
   openGraph: {
     title: "Pulse — Social Content & Creator Network",
-    description: "Where ideas find their rhythm. Discover, create, and monetize next-gen content.",
+    description:
+      "Where ideas find their rhythm. Discover inspiring stories, follow leading creators, engage in real-time WebRTC live calls, and monetize on onlypain.in.",
+    url: "https://onlypain.in",
+    siteName: "Pulse",
+    locale: "en_US",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Pulse — Social Content & Creator Network",
+    description:
+      "Where ideas find their rhythm. Discover inspiring stories, follow leading creators, engage in real-time WebRTC live calls, and monetize on onlypain.in.",
+  },
+  icons: {
+    icon: "/favicon.ico",
   },
 };
 
@@ -35,6 +84,25 @@ export default function RootLayout({ children }) {
     <html lang="en" className="h-full scroll-smooth" suppressHydrationWarning>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              "name": "Pulse",
+              "alternateName": ["Pulse Network", "onlypain.in"],
+              "url": "https://onlypain.in",
+              "description":
+                "A next-generation social content network and creator publishing platform uniting rich storytelling, Web3 creator monetization, direct messaging, and native WebRTC live-calling.",
+              "potentialAction": {
+                "@type": "SearchAction",
+                "target": "https://onlypain.in/search?q={search_term_string}",
+                "query-input": "required name=search_term_string"
+              }
+            })
+          }}
+        />
       </head>
       <body
         suppressHydrationWarning

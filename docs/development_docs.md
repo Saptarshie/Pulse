@@ -553,3 +553,59 @@ All creator mentions across Pulse navigate directly to their public profile (`/p
   - `/profile/[username]` (Self): "Direct Messages" CTA switches to the in-page Direct Messages tab.
   - Followers & Following lists: "Chat" action button on every member card opens the conversation in-page.
 
+---
+
+## 17. Native WebRTC Live-Calling Architecture (Audio & Video)
+
+### 17.1 Protocol & Signaling Engine
+- **Peer-to-Peer Zero-Dependency WebRTC**:
+  - Live audio and video calling built directly on the browser's native `RTCPeerConnection`, `MediaStream`, and Web Audio APIs.
+  - Zero heavy third-party paid SDKs (Agora, Twilio, Daily.co) required.
+  - Signaling exchanged in real time over the existing low-latency WebSocket server (`src/lib/socketServer.js` on port 3005).
+- **Public STUN Server Pool**:
+  - Configured with high-availability public Google STUN servers:
+    ```javascript
+    const ICE_SERVERS = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" }
+      ]
+    };
+    ```
+- **Signaling Message Lifecycle**:
+  1. `call:initiate`: Sent by caller with `callType` (`'audio'` or `'video'`) and caller profile metadata.
+  2. `call:incoming`: Delivered by WebSocket server to recipient's connected sockets.
+  3. `call:accept`: Sent by recipient upon clicking Accept; prompts caller to generate SDP Offer.
+  4. `call:reject`: Sent if recipient declines or is already busy (`reason: 'busy'`).
+  5. `call:unavailable`: Returned by server if the target user has no active socket connections.
+  6. `call:hangup`: Dispatched by either peer to terminate media streams and close peer connections.
+  7. `webrtc:offer`, `webrtc:answer`, `webrtc:ice-candidate`: Exchanged directly between peers with candidate queuing to avoid race conditions prior to remote description attachment.
+
+### 17.2 Media Stream Acquisition & Automated Fallbacks
+- **Hardware Agnostic Synthetic Media Stream**:
+  - In environments without physical webcams or microphones (e.g. servers, automated browser tests, headless environments), `getUserMedia` gracefully falls back to `createSyntheticMediaStream`:
+    - **Synthetic Video Track**: Uses `HTMLCanvasElement.captureStream(24)` rendering an animated gradient orb and stream identifier.
+    - **Synthetic Audio Track**: Uses `AudioContext.createMediaStreamDestination()` connected to an oscillator and sub-threshold gain node.
+  - Guarantees WebRTC negotiation, stream attachment, and UI rendering never crash due to missing hardware.
+- **Web Audio API Ringtone Synthesis**:
+  - Dialing tone (440Hz pulsed tone) and incoming call ringtone (dual-frequency 440Hz + 480Hz US standard chime) synthesized purely via `AudioContext` oscillators.
+  - Zero external `.mp3` dependencies or CORS/codec failures.
+
+### 17.3 UI Components & Controls
+- **Universal Trigger Points**:
+  - **Direct Messages Chat Header**: Quick Audio Call (📞) and Video Call (📹) action buttons beside the recipient's identity in `src/components/social-panel/index.js`.
+  - **User Profile Page**: "Call" and "Video" pill buttons on other users' profile headers (`/profile/[username]`) in `src/app/profile/[username]/page.js`.
+- **Global `CallProvider` (`src/context/CallContext.js`)**:
+  - Mounted inside `ReduxProvider` in `src/provider/index.js`, making call state globally accessible across the entire application without unmounting during page navigation.
+- **`IncomingCallModal` (`src/components/live-call/IncomingCallModal.js`)**:
+  - Sleek dark-glass modal with caller avatar, animated ping rings, call type badge, and Accept (Green) / Decline (Red) controls.
+- **`ActiveCallModal` (`src/components/live-call/ActiveCallModal.js`)**:
+  - **Remote Video Stream**: High-resolution video stream display.
+  - **Audio Waveform Visualizer**: For voice-only calls or when remote camera is disabled, displays glowing pulsing rings and dynamic audio equalizer visualizer bars.
+  - **Local Picture-in-Picture (PiP)**: Inset mirror camera preview with "You" badge.
+  - **Floating Control Pill**: Mute/Unmute microphone, toggle camera on/off, toggle screen sharing (`getDisplayMedia`), minimize window, and end call.
+  - **Floating Minimized Call Widget**: Collapses call into a compact floating badge in the bottom-right corner (`fixed bottom-6 right-6 z-[9999]`) showing caller avatar, live call stopwatch (`02:45`), quick mute, expand, and end call shortcuts.
+
+

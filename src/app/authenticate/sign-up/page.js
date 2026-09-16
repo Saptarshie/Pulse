@@ -158,7 +158,7 @@ export default function SignUpWithOTP() {
       <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
         <div className="text-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Create an Account</h1>
-          <p className="text-gray-600 mt-2">Join our community of bloggers</p>
+          <p className="text-gray-600 mt-2">Join the Pulse Social & Creator Network</p>
         </div>
 
         {error && (

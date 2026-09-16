@@ -25,8 +25,11 @@ import {
   ArrowLeftIcon,
   PaperAirplaneIcon,
   SparklesIcon,
-  CheckBadgeIcon
+  CheckBadgeIcon,
+  PhoneIcon,
+  VideoCameraIcon
 } from "@heroicons/react/24/outline";
+import { useCall } from "@/context/CallContext";
 
 export default function SocialFollowPanel({
   isOpen,
@@ -40,6 +43,7 @@ export default function SocialFollowPanel({
   const router = useRouter();
   const currentUser = useSelector((state) => state.userslice);
   const currentUsername = currentUser?.username;
+  const { startCall } = useCall();
 
   const [panelOpen, setPanelOpen] = useState(isOpen || false);
   const [targetUsername, setTargetUsername] = useState(initialUsername || "");
@@ -553,31 +557,54 @@ export default function SocialFollowPanel({
                 <span>All Chats</span>
               </button>
 
-              <div
-                onClick={() => navigateToProfile(activeConversation.otherUser?.username)}
-                className="flex items-center space-x-2 cursor-pointer hover:opacity-85 transition-opacity min-w-0"
-                title={`View @${activeConversation.otherUser?.username}'s Profile`}
-              >
-                <div className="relative shrink-0">
-                  {activeConversation.otherUser?.profilePic ? (
-                    <img
-                      src={activeConversation.otherUser.profilePic}
-                      alt={activeConversation.otherUser.username}
-                      className="w-7 h-7 rounded-full object-cover border border-slate-200"
-                    />
-                  ) : (
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-[10px] font-bold">
-                      {(activeConversation.otherUser?.name || activeConversation.otherUser?.username || "U").slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
+              {/* Right Side: Call Action Buttons & User Profile */}
+              <div className="flex items-center space-x-2 min-w-0">
+                {/* Audio & Video Call Action Buttons */}
+                <div className="flex items-center space-x-1 bg-white/90 border border-slate-200/80 rounded-full px-1.5 py-0.5 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => startCall(activeConversation.otherUser, "audio")}
+                    className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors cursor-pointer"
+                    title={`Start audio call with @${activeConversation.otherUser?.username}`}
+                  >
+                    <PhoneIcon className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startCall(activeConversation.otherUser, "video")}
+                    className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-full transition-colors cursor-pointer"
+                    title={`Start video call with @${activeConversation.otherUser?.username}`}
+                  >
+                    <VideoCameraIcon className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <div className="min-w-0 text-right">
-                  <p className="text-xs font-bold text-slate-900 truncate">
-                    {activeConversation.otherUser?.name || activeConversation.otherUser?.username}
-                  </p>
-                  <p className="text-[10px] text-purple-600 truncate">
-                    @{activeConversation.otherUser?.username}
-                  </p>
+
+                <div
+                  onClick={() => navigateToProfile(activeConversation.otherUser?.username)}
+                  className="flex items-center space-x-2 cursor-pointer hover:opacity-85 transition-opacity min-w-0"
+                  title={`View @${activeConversation.otherUser?.username}'s Profile`}
+                >
+                  <div className="relative shrink-0">
+                    {activeConversation.otherUser?.profilePic ? (
+                      <img
+                        src={activeConversation.otherUser.profilePic}
+                        alt={activeConversation.otherUser.username}
+                        className="w-7 h-7 rounded-full object-cover border border-slate-200"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 text-white flex items-center justify-center text-[10px] font-bold">
+                        {(activeConversation.otherUser?.name || activeConversation.otherUser?.username || "U").slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 text-right">
+                    <p className="text-xs font-bold text-slate-900 truncate max-w-[90px] sm:max-w-[120px]">
+                      {activeConversation.otherUser?.name || activeConversation.otherUser?.username}
+                    </p>
+                    <p className="text-[10px] text-purple-600 truncate max-w-[90px] sm:max-w-[120px]">
+                      @{activeConversation.otherUser?.username}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

@@ -26,7 +26,10 @@ import {
   DocumentTextIcon,
   ChatBubbleLeftRightIcon,
   UserPlusIcon,
+  PhoneIcon,
+  VideoCameraIcon,
 } from "@heroicons/react/24/outline";
+import { useCall } from "@/context/CallContext";
 
 export default function UserProfilePage({ params }) {
   // In Next.js 15 App Router, params is a Promise
@@ -40,6 +43,7 @@ export default function UserProfilePage({ params }) {
 
   const initialTab = searchParams.get("tab") || "stories"; // 'stories' | 'followers' | 'following'
   const reduxUser = useSelector((state) => state.userslice);
+  const { startCall } = useCall();
 
   const [userData, setUserData] = useState(null);
   const [blogs, setBlogs] = useState([]);
@@ -480,10 +484,58 @@ export default function UserProfilePage({ params }) {
 
                   <button
                     onClick={() => openDMWith(userData.username)}
-                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold transition-colors"
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold transition-colors cursor-pointer"
                   >
                     <ChatBubbleLeftRightIcon className="h-4 w-4" />
                     <span>Message</span>
+                  </button>
+
+                  {/* Audio Call */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!reduxUser?.username) {
+                        router.push("/authenticate/sign-in");
+                        return;
+                      }
+                      startCall(
+                        {
+                          username: userData?.username || targetUsername,
+                          name: userData?.name || userData?.username || targetUsername,
+                          profilePic: userData?.profilePic || ""
+                        },
+                        "audio"
+                      );
+                    }}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-full border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                    title={`Audio call @${userData?.username || targetUsername}`}
+                  >
+                    <PhoneIcon className="h-4 w-4 text-emerald-600" />
+                    <span>Call</span>
+                  </button>
+
+                  {/* Video Call */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!reduxUser?.username) {
+                        router.push("/authenticate/sign-in");
+                        return;
+                      }
+                      startCall(
+                        {
+                          username: userData?.username || targetUsername,
+                          name: userData?.name || userData?.username || targetUsername,
+                          profilePic: userData?.profilePic || ""
+                        },
+                        "video"
+                      );
+                    }}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-full border border-slate-200 hover:border-purple-300 hover:bg-purple-50 text-slate-700 hover:text-purple-700 text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                    title={`Video call @${userData?.username || targetUsername}`}
+                  >
+                    <VideoCameraIcon className="h-4 w-4 text-purple-600" />
+                    <span>Video</span>
                   </button>
                 </>
               )}

@@ -24,6 +24,57 @@ import {
   UserPlusIcon,
 } from "@heroicons/react/24/outline";
 
+export async function generateMetadata({ params }) {
+  const { "blog-id": blogId } = await params;
+  try {
+    const { connectToDB } = await import("@/database");
+    const { Blog } = await import("@/models");
+    await connectToDB();
+    const blog = await Blog.findById(blogId).lean();
+    if (!blog) {
+      return {
+        title: "Story Not Found | Pulse",
+        description: "The requested story could not be found on Pulse.",
+      };
+    }
+    const title = `${blog.title} — by @${blog.author}`;
+    const description =
+      blog.description ||
+      "Read this story on Pulse (onlypain.in) — Social Content & Creator Network.";
+    const imageUrl = blog.image?.imagePath;
+
+    return {
+      title,
+      description,
+      alternates: {
+        canonical: `https://onlypain.in/blogs/${blogId}`,
+      },
+      openGraph: {
+        title,
+        description,
+        url: `https://onlypain.in/blogs/${blogId}`,
+        siteName: "Pulse",
+        type: "article",
+        publishedTime: blog.date ? new Date(blog.date).toISOString() : undefined,
+        authors: [blog.author],
+        tags: blog.tags || [],
+        images: imageUrl ? [{ url: imageUrl, alt: blog.title }] : [],
+      },
+      twitter: {
+        card: "summary_large_image",
+        title,
+        description,
+        images: imageUrl ? [imageUrl] : [],
+      },
+    };
+  } catch (err) {
+    return {
+      title: "Pulse Story",
+      description: "Read inspiring stories on Pulse (onlypain.in).",
+    };
+  }
+}
+
 export default async function BlogPage({ params }) {
   const { "blog-id": blogId } = await params;
   const res = await fetchBlogById(blogId);

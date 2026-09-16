@@ -302,24 +302,17 @@ export async function searchBlogs(searchText) {
 export async function fetchBlogById(blogId) {
   try {
     await connectToDB();
-    // const token = await cookies().get("token")?.value;
-        const cookieStore = await cookies(); // ✅ await the cookies() call
+    const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
-    if (!token) {
-      return {
-        success: false,
-        status: 401,
-        message: "User not authenticated",
-      };
-    }
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return {
-        success: false,
-        status: 404,
-        message: "User not found",
-      };
+    
+    let user = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+        user = await User.findById(decoded.id);
+      } catch (tokenErr) {
+        // Invalid or expired token
+      }
     }
 
     const blog = await Blog.findById(blogId).lean();
@@ -331,16 +324,29 @@ export async function fetchBlogById(blogId) {
         message: "Blog not found"
       };
     }
-    if(blog.isPremium && blog.author !== user.username && !user.subscription.includes(blog.author)){
-      return {
-        success: false,
-        status: 403,
-        message: "You are not authorized to view this blog",
-        author: blog.author
-      };
+
+    // Gate premium stories for non-subscribers or guests
+    if (blog.isPremium) {
+      if (!user) {
+        return {
+          success: false,
+          status: 401,
+          message: "User not authenticated",
+        };
+      }
+      if (blog.author !== user.username && !user.subscription?.includes(blog.author)) {
+        return {
+          success: false,
+          status: 403,
+          message: "You are not authorized to view this blog",
+          author: blog.author
+        };
+      }
     }
 
-    trackBlogVisit(user.username, blogId);
+    if (user?.username) {
+      trackBlogVisit(user.username, blogId);
+    }
     
     // Atomically increment views and record timestamp in viewsLog for EMA trending analytics
     Blog.findByIdAndUpdate(blogId, {

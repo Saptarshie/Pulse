@@ -104,12 +104,14 @@ wss.on('connection', (ws) => {
       const msg = JSON.parse(data.toString());
 
       if (msg.type === 'auth' && msg.username) {
-        authenticatedUser = msg.username.toLowerCase();
+        authenticatedUser = String(msg.username).trim().toLowerCase();
 
         if (!clients.has(authenticatedUser)) {
           clients.set(authenticatedUser, new Set());
         }
         clients.get(authenticatedUser).add(ws);
+
+        console.log(`[Pulse WS] User authenticated: "${authenticatedUser}" (active sockets for user: ${clients.get(authenticatedUser).size}, total connected users: ${clients.size})`);
 
         ws.send(JSON.stringify({
           type: 'authenticated',
@@ -118,9 +120,51 @@ wss.on('connection', (ws) => {
         }));
       } else if (msg.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' }));
+      } else if (typeof msg.type === 'string' && (msg.type.startsWith('call:') || msg.type.startsWith('webrtc:'))) {
+        // Forward WebRTC signaling messages
+        const recipient = String(msg.recipient || msg.target || '').trim().toLowerCase();
+        const sender = String(authenticatedUser || msg.sender || '').trim().toLowerCase();
+
+        console.log(`[Pulse WS] Signaling: type="${msg.type}" from="${sender}" to="${recipient}"`);
+
+        if (recipient && clients.has(recipient)) {
+          const recSockets = clients.get(recipient);
+          const payload = JSON.stringify({
+            ...msg,
+            sender,
+            recipient,
+            serverTimestamp: new Date().toISOString()
+          });
+
+          let delivered = 0;
+          recSockets.forEach((clientWs) => {
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(payload);
+              delivered++;
+            }
+          });
+
+          console.log(`[Pulse WS] Forwarded "${msg.type}" to ${delivered} active socket(s) for user "${recipient}"`);
+
+          if (delivered === 0 && msg.type === 'call:initiate') {
+            console.log(`[Pulse WS] No open sockets for user "${recipient}", sending call:unavailable`);
+            ws.send(JSON.stringify({
+              type: 'call:unavailable',
+              recipient,
+              reason: 'User is currently unreachable'
+            }));
+          }
+        } else if (msg.type === 'call:initiate') {
+          console.log(`[Pulse WS] Recipient "${recipient}" is OFFLINE (active users: ${Array.from(clients.keys()).join(', ')}), sending call:unavailable`);
+          ws.send(JSON.stringify({
+            type: 'call:unavailable',
+            recipient,
+            reason: 'User is currently offline'
+          }));
+        }
       }
     } catch (e) {
-      // ignore invalid messages
+      console.warn('[Pulse WS] Failed to parse message:', e.message);
     }
   });
 
@@ -128,8 +172,10 @@ wss.on('connection', (ws) => {
     if (authenticatedUser && clients.has(authenticatedUser)) {
       const userSockets = clients.get(authenticatedUser);
       userSockets.delete(ws);
+      console.log(`[Pulse WS] Socket closed for user "${authenticatedUser}" (remaining sockets: ${userSockets.size})`);
       if (userSockets.size === 0) {
         clients.delete(authenticatedUser);
+        console.log(`[Pulse WS] User "${authenticatedUser}" completely disconnected (total online users: ${clients.size})`);
       }
     }
   });
