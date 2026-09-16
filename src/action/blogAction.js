@@ -301,6 +301,14 @@ export async function searchBlogs(searchText) {
 
 export async function fetchBlogById(blogId) {
   try {
+    if (!blogId || !mongoose.isValidObjectId(blogId)) {
+      return {
+        success: false,
+        status: 404,
+        message: "Invalid story ID"
+      };
+    }
+
     await connectToDB();
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
@@ -348,21 +356,32 @@ export async function fetchBlogById(blogId) {
       trackBlogVisit(user.username, blogId);
     }
     
-    // Atomically increment views and record timestamp in viewsLog for EMA trending analytics
-    Blog.findByIdAndUpdate(blogId, {
-      $inc: { views: 1 },
-      $push: {
+    // Safely update views and viewsLog (handle documents where viewsLog was stored as a number)
+    const updateOps = { $inc: { views: 1 } };
+    if (Array.isArray(blog.viewsLog)) {
+      updateOps.$push = {
         viewsLog: {
           $each: [{ date: new Date() }],
-          $slice: -50 // Keep the 50 most recent view timestamps to keep documents light
+          $slice: -50
         }
-      }
-    }).catch(err => console.error("Error logging blog view event:", err));
+      };
+    } else {
+      updateOps.$set = { viewsLog: [{ date: new Date() }] };
+    }
+    Blog.findByIdAndUpdate(blogId, updateOps).catch(err => console.error("Error logging blog view event:", err));
+
+    const plainBlog = JSON.parse(JSON.stringify(blog));
+    if (!Array.isArray(plainBlog.comments)) {
+      plainBlog.comments = [];
+    }
+    if (!Array.isArray(plainBlog.likes)) {
+      plainBlog.likes = [];
+    }
 
     return {
       success: true,
       status: 200,
-      blog: JSON.parse(JSON.stringify(blog))
+      blog: plainBlog
     };
   } catch (error) {
     console.error("Error fetching blog:", error);

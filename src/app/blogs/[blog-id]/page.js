@@ -24,11 +24,29 @@ import {
   UserPlusIcon,
 } from "@heroicons/react/24/outline";
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function generateMetadata({ params }) {
-  const { "blog-id": blogId } = await params;
   try {
+    const { "blog-id": blogId } = await params;
+    if (!blogId) {
+      return {
+        title: "Story Not Found | Pulse",
+        description: "The requested story could not be found on Pulse.",
+      };
+    }
     const { connectToDB } = await import("@/database");
     const { Blog } = await import("@/models");
+    const mongoose = (await import("mongoose")).default;
+    
+    if (!mongoose.isValidObjectId(blogId)) {
+      return {
+        title: "Story Not Found | Pulse",
+        description: "The requested story could not be found on Pulse.",
+      };
+    }
+
     await connectToDB();
     const blog = await Blog.findById(blogId).lean();
     if (!blog) {
@@ -43,6 +61,16 @@ export async function generateMetadata({ params }) {
       "Read this story on Pulse (onlypain.in) — Social Content & Creator Network.";
     const imageUrl = blog.image?.imagePath;
 
+    let safePublishedTime;
+    try {
+      if (blog.date) {
+        const d = new Date(blog.date);
+        if (!isNaN(d.getTime())) safePublishedTime = d.toISOString();
+      }
+    } catch {
+      // ignore
+    }
+
     return {
       title,
       description,
@@ -55,9 +83,9 @@ export async function generateMetadata({ params }) {
         url: `https://onlypain.in/blogs/${blogId}`,
         siteName: "Pulse",
         type: "article",
-        publishedTime: blog.date ? new Date(blog.date).toISOString() : undefined,
+        publishedTime: safePublishedTime,
         authors: [blog.author],
-        tags: blog.tags || [],
+        tags: Array.isArray(blog.tags) ? blog.tags : [],
         images: imageUrl ? [{ url: imageUrl, alt: blog.title }] : [],
       },
       twitter: {
@@ -77,6 +105,10 @@ export async function generateMetadata({ params }) {
 
 export default async function BlogPage({ params }) {
   const { "blog-id": blogId } = await params;
+  if (!blogId) {
+    return notFound();
+  }
+
   const res = await fetchBlogById(blogId);
 
   // If reader is not signed in, redirect to sign-in
@@ -155,6 +187,22 @@ export default async function BlogPage({ params }) {
     ? blog.author.slice(0, 2).toUpperCase()
     : "PU";
 
+  let safeDateStr = "Recently";
+  try {
+    if (blog.date) {
+      const d = new Date(blog.date);
+      if (!isNaN(d.getTime())) {
+        safeDateStr = formatDistanceToNow(d, { addSuffix: true });
+      }
+    }
+  } catch {
+    safeDateStr = "Recently";
+  }
+
+  const commentCount = Array.isArray(blog.comments)
+    ? blog.comments.length
+    : (typeof blog.comments === "number" ? blog.comments : 0);
+
   return (
     <div className="min-h-screen pb-20">
       {/* Pulse AI Co-Pilot Drawer */}
@@ -221,13 +269,7 @@ export default async function BlogPage({ params }) {
                     @{blog.author ? blog.author.toLowerCase() : "creator"}
                   </span>
                   <span>•</span>
-                  <span>
-                    {blog.date
-                      ? formatDistanceToNow(new Date(blog.date), {
-                          addSuffix: true,
-                        })
-                      : "Recently"}
-                  </span>
+                  <span>{safeDateStr}</span>
                   <span>•</span>
                   <span className="flex items-center">
                     <ClockIcon className="h-3 w-3 mr-1" />
@@ -245,7 +287,7 @@ export default async function BlogPage({ params }) {
                 title="Jump to discussion"
               >
                 <span>💬</span>
-                <span>{(blog.comments || []).length}</span>
+                <span>{commentCount}</span>
               </a>
 
               <Link
@@ -356,8 +398,8 @@ export default async function BlogPage({ params }) {
         {/* Real-time MongoDB Discussion & Community Feedback */}
         <BlogComments
           blogId={blogId}
-          initialComments={blog.comments || []}
-          initialLikes={blog.likes || []}
+          initialComments={Array.isArray(blog.comments) ? blog.comments : []}
+          initialLikes={Array.isArray(blog.likes) ? blog.likes : []}
           blogAuthor={blog.author}
         />
 
