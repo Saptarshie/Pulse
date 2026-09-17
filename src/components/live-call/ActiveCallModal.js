@@ -20,6 +20,7 @@ export default function ActiveCallModal({
   isMuted,
   isVideoOff,
   isScreenSharing,
+  remoteIsScreenSharing = false,
   isMinimized,
   duration,
   statusMessage,
@@ -33,24 +34,65 @@ export default function ActiveCallModal({
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
 
-  // Attach local stream to video element
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
+  // Callback ref: immediately attaches stream and plays when remote video mounts in DOM
+  const setRemoteVideo = (videoEl) => {
+    remoteVideoRef.current = videoEl;
+    if (videoEl && remoteStream) {
+      if (videoEl.srcObject !== remoteStream) {
+        videoEl.srcObject = remoteStream;
+      }
+      videoEl.play().catch(() => {});
     }
-  }, [localStream, isVideoOff, isMinimized]);
+  };
 
-  // Attach remote stream to video element
+  // Callback ref: immediately attaches stream to local preview
+  const setLocalVideo = (videoEl) => {
+    localVideoRef.current = videoEl;
+    if (videoEl && localStream) {
+      if (videoEl.srcObject !== localStream) {
+        videoEl.srcObject = localStream;
+      }
+      videoEl.play().catch(() => {});
+    }
+  };
+
+  // Callback ref: immediately attaches stream to audio tag
+  const setRemoteAudio = (audioEl) => {
+    remoteAudioRef.current = audioEl;
+    if (audioEl && remoteStream) {
+      if (audioEl.srcObject !== remoteStream) {
+        audioEl.srcObject = remoteStream;
+      }
+      audioEl.play().catch(() => {});
+    }
+  };
+
+  // Effect syncing remote video element whenever remoteStream or state changes
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteVideoRef.current.srcObject !== remoteStream) {
+        remoteVideoRef.current.srcObject = remoteStream;
+      }
+      remoteVideoRef.current.play().catch(() => {});
     }
-  }, [remoteStream, isMinimized]);
+  }, [remoteStream, callState, isMinimized]);
 
-  // Always attach remote stream to audio element so voice is heard in audio/video/minimized calls
+  // Effect syncing local video preview
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      if (localVideoRef.current.srcObject !== localStream) {
+        localVideoRef.current.srcObject = localStream;
+      }
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [localStream, isVideoOff, isScreenSharing, isMinimized]);
+
+  // Effect syncing audio element
   useEffect(() => {
     if (remoteAudioRef.current && remoteStream) {
-      remoteAudioRef.current.srcObject = remoteStream;
+      if (remoteAudioRef.current.srcObject !== remoteStream) {
+        remoteAudioRef.current.srcObject = remoteStream;
+      }
       remoteAudioRef.current.play().catch(() => {});
     }
   }, [remoteStream]);
@@ -66,7 +108,7 @@ export default function ActiveCallModal({
     return (
       <div className="fixed bottom-6 right-6 z-[9999] flex items-center space-x-3 rounded-2xl border border-white/15 bg-slate-900/90 px-4 py-3 shadow-2xl backdrop-blur-xl animate-fade-in text-white select-none">
         {/* Hidden Audio Player so voice continues streaming while reading/browsing */}
-        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        <audio ref={setRemoteAudio} autoPlay playsInline className="hidden" />
         {/* Pulsing indicator */}
         <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
           <div className="absolute inset-0 rounded-full bg-purple-500/30 animate-ping" />
@@ -131,7 +173,7 @@ export default function ActiveCallModal({
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-xl animate-fade-in">
       {/* Hidden Audio Player ensuring remote stream is audible in all scenarios */}
-      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      <audio ref={setRemoteAudio} autoPlay playsInline className="hidden" />
       <div className="relative flex flex-col h-full max-h-[88vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-white/15 bg-slate-900/95 shadow-2xl backdrop-blur-2xl">
         {/* Top Header Bar */}
         <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-slate-950/80 via-slate-950/40 to-transparent">
@@ -184,9 +226,20 @@ export default function ActiveCallModal({
 
         {/* Media Stream Stage */}
         <div className="relative flex-1 w-full h-full bg-slate-950 flex items-center justify-center overflow-hidden">
-          {/* Audio Call or Remote Camera Off: Waveform Visualizer */}
-          {isAudioCall || !isConnected ? (
-            <div className="flex flex-col items-center justify-center space-y-6 text-center z-10 px-4">
+          {/* Always-Mounted Remote Video Element (Zero unmounting, zero ref detachments) */}
+          <video
+            ref={setRemoteVideo}
+            autoPlay
+            playsInline
+            onLoadedMetadata={(e) => e.target.play().catch(() => {})}
+            className={`absolute inset-0 h-full w-full ${
+              isScreenSharing || remoteIsScreenSharing ? "object-contain bg-black" : "object-cover"
+            }`}
+          />
+
+          {/* Audio Call or Calling State: Overlay Waveform Visualizer */}
+          {(isAudioCall || !isConnected) && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center space-y-6 text-center bg-slate-950/95 backdrop-blur-md px-4">
               <div className="relative flex items-center justify-center">
                 {/* Concentric pulsing rings */}
                 <div className="absolute h-48 w-48 rounded-full border border-purple-500/30 animate-ping duration-1000" />
@@ -211,9 +264,13 @@ export default function ActiveCallModal({
                   {remoteUser?.name || remoteUser?.username}
                 </p>
                 <p className="text-xs text-purple-300">
-                  {isCalling ? statusMessage || "Ringing peer..." : "Pulse Audio Stream Connected"}
+                  {isCalling
+                    ? statusMessage || "Ringing peer..."
+                    : isAudioCall
+                    ? "Pulse Voice Stream Connected"
+                    : "Connecting video stream..."}
                 </p>
-                
+
                 {/* Audio equalizer animation bars */}
                 <div className="flex items-center justify-center space-x-1.5 pt-2">
                   <span className="h-4 w-1 rounded-full bg-purple-500 animate-pulse" />
@@ -224,36 +281,30 @@ export default function ActiveCallModal({
                 </div>
               </div>
             </div>
-          ) : (
-            /* Video Call Remote Stream */
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="h-full w-full object-cover"
-            />
           )}
 
           {/* Local Picture-in-Picture Preview (For Video Calls) */}
           {!isAudioCall && (
             <div className="absolute bottom-24 right-4 z-20 h-36 w-48 sm:h-44 sm:w-60 overflow-hidden rounded-2xl border-2 border-white/20 bg-slate-900 shadow-2xl backdrop-blur-md">
-              {isVideoOff ? (
+              <video
+                ref={setLocalVideo}
+                autoPlay
+                playsInline
+                muted
+                onLoadedMetadata={(e) => e.target.play().catch(() => {})}
+                className={`h-full w-full ${
+                  isScreenSharing ? "object-contain bg-black" : "object-cover"
+                } ${isVideoOff && !isScreenSharing ? "hidden" : "block"}`}
+                style={{ transform: isScreenSharing ? "none" : "scaleX(-1)" }}
+              />
+              {isVideoOff && !isScreenSharing && (
                 <div className="flex h-full w-full flex-col items-center justify-center bg-slate-900/90 text-slate-400 text-xs">
                   <VideoCameraIcon className="h-6 w-6 mb-1 text-slate-500" />
                   <span>Camera Off</span>
                 </div>
-              ) : (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="h-full w-full object-cover mirror"
-                  style={{ transform: "scaleX(-1)" }}
-                />
               )}
               <span className="absolute bottom-2 left-2 rounded-md bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                You
+                {isScreenSharing ? "Your Screen" : "You"}
               </span>
             </div>
           )}

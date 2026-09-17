@@ -51,10 +51,11 @@ export async function POST(request) {
     }
 
     const payload = {
+      ...body,
       type,
       sender,
       recipient,
-      callType,
+      callType: body.callType || callType,
       caller: caller || { username: sender },
       sdp,
       candidate,

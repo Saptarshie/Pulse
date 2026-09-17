@@ -236,6 +236,7 @@ export function CallProvider({ children }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [remoteIsScreenSharing, setRemoteIsScreenSharing] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [durationSeconds, setDurationSeconds] = useState(0);
 
@@ -247,6 +248,7 @@ export function CallProvider({ children }) {
   const titleIntervalRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
+  const screenTrackRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
   const originalVideoTrackRef = useRef(null);
   const remoteUserRef = useRef(null);
@@ -297,6 +299,11 @@ export function CallProvider({ children }) {
       pcRef.current = null;
     }
 
+    if (screenTrackRef.current) {
+      screenTrackRef.current.stop();
+      screenTrackRef.current = null;
+    }
+
     pendingCandidatesRef.current = [];
     originalVideoTrackRef.current = null;
 
@@ -305,6 +312,7 @@ export function CallProvider({ children }) {
     setIsMuted(false);
     setIsVideoOff(false);
     setIsScreenSharing(false);
+    setRemoteIsScreenSharing(false);
     setIsMinimized(false);
     setDurationSeconds(0);
   }, [clearTitleFlashing]);
@@ -325,20 +333,56 @@ export function CallProvider({ children }) {
     }, 1000);
   }, []);
 
-  // Safe media acquisition
+  // Multi-tier safe media acquisition
   const acquireLocalMedia = useCallback(async (type) => {
     const needVideo = type === "video";
-    try {
-      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: needVideo ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false
-        });
-        return stream;
+
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      // 1. First Tier: Try high-quality camera with echo-cancelled audio
+      if (needVideo) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: {
+              width: { ideal: 1280, max: 1920 },
+              height: { ideal: 720, max: 1080 },
+              facingMode: "user"
+            }
+          });
+          return stream;
+        } catch (err1) {
+          console.warn("[Pulse CallEngine] High-res camera acquisition failed, trying basic video:", err1?.message);
+        }
+
+        // 2. Second Tier: Try unconstrained camera (fixes mobile constraint errors)
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: true
+          });
+          return stream;
+        } catch (err2) {
+          console.warn("[Pulse CallEngine] Basic camera acquisition failed, falling back to real mic + synthetic video:", err2?.message);
+        }
       }
-    } catch (err) {
-      console.warn("Physical camera/mic not available, using synthetic media stream fallback:", err.message);
+
+      // 3. Third Tier: Acquire real microphone, and if needVideo, attach synthetic video
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        if (needVideo) {
+          const synth = createSyntheticMediaStream(true);
+          const synthVideoTrack = synth?.getVideoTracks()[0];
+          if (synthVideoTrack) audioStream.addTrack(synthVideoTrack);
+        }
+        return audioStream;
+      } catch (err3) {
+        console.warn("[Pulse CallEngine] Microphone acquisition failed:", err3?.message);
+      }
     }
+
+    // 4. Final Tier: Complete synthetic fallback
     return createSyntheticMediaStream(needVideo);
   }, []);
 
@@ -399,29 +443,74 @@ export function CallProvider({ children }) {
         }
       };
 
-      // Receive remote tracks
+      // Receive remote tracks (handles audio, camera video, and screen sharing)
       pc.ontrack = (event) => {
-        let stream = null;
-        if (event.streams && event.streams[0]) {
-          stream = event.streams[0];
-        } else {
-          stream = new MediaStream();
-          stream.addTrack(event.track);
+        console.log(`[Pulse CallEngine] Remote track arrived: kind=${event.track.kind}, id=${event.track.id}`);
+
+        callSound.stop();
+        clearTitleFlashing();
+        setCallState("connected");
+        setStatusMessage("");
+        startTimer();
+
+        let currentStream = remoteStreamRef.current;
+        if (!currentStream) {
+          currentStream = new MediaStream();
         }
-        remoteStreamRef.current = stream;
-        setRemoteStream(stream);
+
+        // Add all tracks from event.streams if present
+        if (event.streams && event.streams[0]) {
+          event.streams[0].getTracks().forEach((track) => {
+            if (!currentStream.getTracks().some((t) => t.id === track.id)) {
+              currentStream.addTrack(track);
+            }
+          });
+        }
+
+        // Always ensure the arriving track is added
+        if (!currentStream.getTracks().some((t) => t.id === event.track.id)) {
+          currentStream.addTrack(event.track);
+        }
+
+        // If a video track arrived, ensure callType reflects video
+        if (event.track.kind === "video") {
+          setCallType("video");
+        }
+
+        // Re-dispatch if track un-mutes
+        event.track.onunmute = () => {
+          if (remoteStreamRef.current) {
+            setRemoteStream(new MediaStream(remoteStreamRef.current.getTracks()));
+          }
+        };
+
+        // Create a new MediaStream instance so React state updates and triggers re-render
+        const freshStream = new MediaStream(currentStream.getTracks());
+        remoteStreamRef.current = freshStream;
+        setRemoteStream(freshStream);
       };
 
-      // Connection state changes
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "connected") {
+      // Connection state changes (handles both modern and mobile WebRTC states)
+      const handleStateChange = () => {
+        const connState = pc.connectionState;
+        const iceState = pc.iceConnectionState;
+        console.log(`[Pulse CallEngine] Connection state: ${connState}, ICE: ${iceState}`);
+
+        if (connState === "connected" || iceState === "connected" || iceState === "completed") {
           callSound.stop();
           clearTitleFlashing();
           setCallState("connected");
           setStatusMessage("");
           startTimer();
+        } else if (connState === "failed" || iceState === "failed") {
+          setStatusMessage("Connection unstable...");
+        } else if (connState === "disconnected" || iceState === "disconnected") {
+          setStatusMessage("Reconnecting...");
         }
       };
+
+      pc.onconnectionstatechange = handleStateChange;
+      pc.oniceconnectionstatechange = handleStateChange;
 
       return pc;
     },
@@ -517,10 +606,13 @@ export function CallProvider({ children }) {
           clearTitleFlashing();
           setStatusMessage("Connecting stream...");
 
-          // Caller initiates SDP Offer
+          // Caller initiates SDP Offer with bi-directional audio and video
           const pc = pcRef.current;
           if (pc) {
-            const offer = await pc.createOffer();
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true
+            });
             await pc.setLocalDescription(offer);
             await sendSignal({
               type: "webrtc:offer",
@@ -623,6 +715,15 @@ export function CallProvider({ children }) {
               .catch(() => {});
           } else {
             pendingCandidatesRef.current.push(data.candidate);
+          }
+        }
+
+        // 9. Peer Screen Sharing Status
+        else if (data.type === "call:screen-share-status") {
+          console.log(`[Pulse CallEngine] Remote screen share status: ${data.isSharing}`);
+          setRemoteIsScreenSharing(Boolean(data.isSharing));
+          if (data.isSharing) {
+            setCallType("video");
           }
         }
       } catch (e) {
@@ -770,7 +871,14 @@ export function CallProvider({ children }) {
       pc.addTrack(track, stream);
     });
 
-    // 4. Send call initiate signaling
+    // 4. Ensure video transceiver is ready for fast screen sharing / video upgrades
+    if (type === "audio") {
+      try {
+        pc.addTransceiver("video", { direction: "sendrecv" });
+      } catch (e) {}
+    }
+
+    // 5. Send call initiate signaling
     console.log(
       `[Pulse CallEngine] Initiating ${type} call to @${targetUsername}`
     );
@@ -813,7 +921,14 @@ export function CallProvider({ children }) {
       pc.addTrack(track, stream);
     });
 
-    // 4. Send call accept signaling to caller
+    // 4. Ensure video transceiver is available
+    if (callType === "audio") {
+      try {
+        pc.addTransceiver("video", { direction: "sendrecv" });
+      } catch (e) {}
+    }
+
+    // 5. Send call accept signaling to caller
     console.log(`[Pulse CallEngine] Accepted call from @${targetUsername}`);
     await sendSignal({
       type: "call:accept",
@@ -875,44 +990,138 @@ export function CallProvider({ children }) {
 
   // Toggle Screen Sharing
   const toggleScreenShare = async () => {
-    if (!pcRef.current || !localStreamRef.current) return;
+    if (!pcRef.current) return;
 
     if (isScreenSharing) {
       // Revert back to camera track
-      if (originalVideoTrackRef.current) {
-        const videoSender = pcRef.current.getSenders().find((s) => s.track?.kind === "video");
-        if (videoSender) {
-          await videoSender.replaceTrack(originalVideoTrackRef.current);
+      try {
+        if (screenTrackRef.current) {
+          screenTrackRef.current.stop();
+          screenTrackRef.current = null;
         }
+
+        const videoSender = pcRef.current
+          .getSenders()
+          .find((s) => s.track?.kind === "video" || s.track === null);
+
+        const revertTrack = originalVideoTrackRef.current;
+        if (videoSender && revertTrack) {
+          await videoSender.replaceTrack(revertTrack).catch(() => {});
+        }
+
+        if (localStreamRef.current && revertTrack) {
+          const audioTracks = localStreamRef.current.getAudioTracks();
+          const restoredStream = new MediaStream([...audioTracks, revertTrack]);
+          localStreamRef.current = restoredStream;
+          setLocalStream(restoredStream);
+        }
+
         setIsScreenSharing(false);
+        if (remoteUser?.username) {
+          sendSignal({
+            type: "call:screen-share-status",
+            recipient: String(remoteUser.username).trim().toLowerCase(),
+            isSharing: false
+          });
+        }
+      } catch (err) {
+        console.warn("[Pulse CallEngine] Error stopping screen share:", err);
       }
     } else {
       try {
-        if (typeof navigator !== "undefined" && navigator.mediaDevices?.getDisplayMedia) {
-          const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-          const screenTrack = displayStream.getVideoTracks()[0];
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.getDisplayMedia) {
+          alert("Screen sharing is not supported on this browser or mobile device.");
+          return;
+        }
 
-          if (screenTrack) {
-            const currentVideoTrack = localStreamRef.current.getVideoTracks()[0];
-            originalVideoTrackRef.current = currentVideoTrack;
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            cursor: "always"
+          },
+          audio: false
+        });
 
-            const videoSender = pcRef.current.getSenders().find((s) => s.track?.kind === "video");
-            if (videoSender) {
-              await videoSender.replaceTrack(screenTrack);
+        const screenTrack = displayStream.getVideoTracks()[0];
+        if (!screenTrack) return;
+
+        if ("contentHint" in screenTrack) {
+          screenTrack.contentHint = "detail";
+        }
+        screenTrackRef.current = screenTrack;
+
+        const currentVideoTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+        originalVideoTrackRef.current = currentVideoTrack;
+
+        let videoSender = pcRef.current
+          .getSenders()
+          .find((s) => s.track?.kind === "video" || (s.dtlsTransport && !s.track));
+
+        if (videoSender) {
+          await videoSender.replaceTrack(screenTrack);
+        } else {
+          // If no video sender existed initially (e.g. started audio-only), add track and renegotiate
+          if (localStreamRef.current) {
+            pcRef.current.addTrack(screenTrack, localStreamRef.current);
+            const offer = await pcRef.current.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true
+            });
+            await pcRef.current.setLocalDescription(offer);
+            if (remoteUser?.username) {
+              await sendSignal({
+                type: "webrtc:offer",
+                recipient: String(remoteUser.username).trim().toLowerCase(),
+                sdp: offer
+              });
             }
-
-            screenTrack.onended = () => {
-              if (originalVideoTrackRef.current && videoSender) {
-                videoSender.replaceTrack(originalVideoTrackRef.current);
-              }
-              setIsScreenSharing(false);
-            };
-
-            setIsScreenSharing(true);
           }
         }
+
+        // Update localStream with screenTrack so local preview displays the shared screen
+        if (localStreamRef.current) {
+          const audioTracks = localStreamRef.current.getAudioTracks();
+          const screenStream = new MediaStream([...audioTracks, screenTrack]);
+          localStreamRef.current = screenStream;
+          setLocalStream(screenStream);
+        }
+
+        setCallType("video");
+        setIsScreenSharing(true);
+
+        if (remoteUser?.username) {
+          sendSignal({
+            type: "call:screen-share-status",
+            recipient: String(remoteUser.username).trim().toLowerCase(),
+            isSharing: true
+          });
+        }
+
+        // When user stops via native browser notification bar
+        screenTrack.onended = async () => {
+          if (screenTrackRef.current) {
+            screenTrackRef.current = null;
+          }
+          const revertTrack = originalVideoTrackRef.current;
+          if (videoSender && revertTrack) {
+            await videoSender.replaceTrack(revertTrack).catch(() => {});
+          }
+          if (localStreamRef.current && revertTrack) {
+            const audioTracks = localStreamRef.current.getAudioTracks();
+            const restoredStream = new MediaStream([...audioTracks, revertTrack]);
+            localStreamRef.current = restoredStream;
+            setLocalStream(restoredStream);
+          }
+          setIsScreenSharing(false);
+          if (remoteUser?.username) {
+            sendSignal({
+              type: "call:screen-share-status",
+              recipient: String(remoteUser.username).trim().toLowerCase(),
+              isSharing: false
+            });
+          }
+        };
       } catch (err) {
-        console.warn("Screen share cancelled or failed:", err);
+        console.warn("[Pulse CallEngine] Screen sharing failed or cancelled:", err);
       }
     }
   };
@@ -933,6 +1142,7 @@ export function CallProvider({ children }) {
         isMuted,
         isVideoOff,
         isScreenSharing,
+        remoteIsScreenSharing,
         isMinimized,
         duration: formatDuration(durationSeconds),
         statusMessage,
@@ -969,6 +1179,7 @@ export function CallProvider({ children }) {
           isMuted={isMuted}
           isVideoOff={isVideoOff}
           isScreenSharing={isScreenSharing}
+          remoteIsScreenSharing={remoteIsScreenSharing}
           isMinimized={isMinimized}
           duration={formatDuration(durationSeconds)}
           statusMessage={statusMessage}
