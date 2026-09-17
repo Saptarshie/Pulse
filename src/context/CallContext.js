@@ -161,7 +161,7 @@ function createSyntheticMediaStream(isVideo = true) {
 
       let hue = 0;
       const draw = () => {
-        hue = (hue + 1) % 360;
+        hue = (hue + 2) % 360;
         const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
         grad.addColorStop(0, `hsl(${hue}, 70%, 35%)`);
         grad.addColorStop(1, `hsl(${(hue + 60) % 360}, 70%, 20%)`);
@@ -169,16 +169,26 @@ function createSyntheticMediaStream(isVideo = true) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.fillStyle = "white";
-        ctx.font = "bold 28px Inter, sans-serif";
+        ctx.font = "bold 26px Inter, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("Pulse Live Video", canvas.width / 2, canvas.height / 2);
-        requestAnimationFrame(draw);
+        ctx.fillText("Pulse Live Video", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = "16px Inter, sans-serif";
+        ctx.fillText("Camera stream active", canvas.width / 2, canvas.height / 2 + 25);
       };
       draw();
+      const animInterval = setInterval(draw, 40);
 
       const canvasStream = canvas.captureStream(25);
       const canvasVideoTrack = canvasStream.getVideoTracks()[0];
-      if (canvasVideoTrack) tracks.push(canvasVideoTrack);
+      if (canvasVideoTrack) {
+        // Stop timer when track is stopped
+        const origStop = canvasVideoTrack.stop.bind(canvasVideoTrack);
+        canvasVideoTrack.stop = () => {
+          clearInterval(animInterval);
+          origStop();
+        };
+        tracks.push(canvasVideoTrack);
+      }
     } catch (e) {
       console.warn("Could not create synthetic video track:", e);
     }
