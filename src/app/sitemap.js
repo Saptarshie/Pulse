@@ -21,14 +21,14 @@ export default async function sitemap() {
     {
       url: `${baseUrl}/authenticate/sign-in`,
       lastModified: new Date(),
-      changeFrequency: "monthly",
-      priority: 0.4,
+      changeFrequency: "weekly",
+      priority: 0.7,
     },
     {
       url: `${baseUrl}/authenticate/sign-up`,
       lastModified: new Date(),
-      changeFrequency: "monthly",
-      priority: 0.4,
+      changeFrequency: "weekly",
+      priority: 0.7,
     },
   ];
 
